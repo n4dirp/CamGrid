@@ -1,0 +1,10 @@
+schema_version = "1.0.0"
+id = "camera_grid"
+version = "1.0.0"
+name = "Camera Grid"
+tagline = "Viewport camera grid overlay for quick camera switching"
+maintainer = "Nadir Perazzo"
+type = "add-on"
+tags = ["Camera", "User Interface"]
+blender_version_min = "5.1.0"
+license = ["SPDX:GPL-3.0-or-later"]
