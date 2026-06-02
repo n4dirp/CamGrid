@@ -14,20 +14,19 @@ class CAMGRID_PT_grid_popup(Panel):
     def draw(self, context):
         layout = self.layout
         prefs = context.preferences.addons.get(__package__).preferences
+        props = context.scene.camgrid_props
 
         layout.label(text="Camera Grid")
+
+        layout.separator()
+        layout.prop(prefs.settings, "view_from_camera", text="Change View on Switch")
+        layout.prop(prefs.settings, "show_hidden")
+        layout.prop(props, "source_collection", text="Filter")
 
         layout.separator()
         col = layout.column()
         col.label(text="Display Mode")
         col.row().prop(prefs.settings, "display_type", text="Display Mode", expand=True)
-        if prefs.settings.display_type == "THUMBNAILS":
-            layout.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
-
-        layout.separator()
-        col = layout.column()
-        col.label(text="Grid Alignment")
-        col.row().prop(prefs.settings, "alignment", expand=True)
 
         sub = layout.column(align=True)
         if prefs.settings.display_type == "THUMBNAILS":
@@ -39,21 +38,16 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
-        layout.separator()
+        if prefs.settings.display_type == "THUMBNAILS":
+            layout.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
+
+        col = layout.column()
+        col.label(text="Alignment")
+        col.row().prop(prefs.settings, "alignment", expand=True)
 
         col = layout.column()
         col.label(text="Mouse Wheel")
         col.row().prop(prefs.settings, "wheel_mode", text="Mouse Wheel", expand=True)
-
-        layout.separator()
-        layout.prop(prefs.settings, "view_from_camera", text="Change View on Switch")
-
-        layout.separator()
-        col = layout.column()
-        props = context.scene.camgrid_props
-        col.label(text="Filter Cameras")
-        col.prop(props, "source_collection", text="")
-        layout.prop(prefs.settings, "show_only_visible")
 
 
 def draw_grid_header_button(self, context):
@@ -69,4 +63,5 @@ def draw_grid_header_button(self, context):
     grid_active = viewport_grid.is_grid_active(context)
     if grid_active and prefs.settings.display_type == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
+    row.operator("camgrid.frame_camera_above_grid", text="", icon="MOD_LENGTH")
     row.popover("CAMGRID_PT_grid_popup", text="")

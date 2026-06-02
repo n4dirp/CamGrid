@@ -73,7 +73,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_size: IntProperty(
         name="Preview Size",
         description="Tile width in pixels for camera preview thumbnails",
-        default=96,
+        default=128,
         min=64,
         soft_max=256,
         max=512,
@@ -111,9 +111,9 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Switch the 3D viewport to camera view when selecting a camera from the grid",
         default=False,
     )
-    show_only_visible: BoolProperty(
-        name="Only Show Visible",
-        description="Only show cameras that are visible in the viewport",
+    show_hidden: BoolProperty(
+        name="Show Hidden",
+        description="Include cameras that are hidden in the viewport in the grid",
         default=False,
     )
     wheel_mode: EnumProperty(

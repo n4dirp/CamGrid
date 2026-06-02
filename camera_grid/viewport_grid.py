@@ -368,7 +368,7 @@ def _compute_grid_layout(context, area=None, region=None, scene=None):
 
     prefs = context.preferences.addons.get(__package__).preferences
 
-    if prefs.settings.show_only_visible:
+    if not prefs.settings.show_hidden:
         cameras = [cam for cam in cameras if cam.visible_get()]
     total_cameras = len(cameras)
     if total_cameras < 1:
@@ -1469,15 +1469,14 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_idname = "camgrid.toggle_grid"
     bl_label = "Camera Grid"
     bl_description = (
-        "Toggle the camera grid overlay.\n\n"
-        "Navigation:\n"
-        "    LMB / Wheel / Arrows - Switch camera\n"
-        "    LMB+Drag - Quick switch through cameras\n"
-        "    Ctrl + Wheel - Vertical navigation\n"
-        "    Shift + Wheel - Scroll rows\n"
-        "    Drag Scrollbar - Scroll through cameras\n\n"
-        "Actions:\n"
-        "    RMB+Drag - Paint-select pick status"
+        "Toggle the camera grid.\n\n"
+        "LMB / Wheel / Arrows - Switch camera\n"
+        "LMB+Drag - Quick-switch through cameras\n"
+        "Ctrl+Wheel - Navigate up/down\n"
+        "Shift+Wheel - Scroll rows\n"
+        "Drag Scrollbar - Scroll cameras\n"
+        "RMB+Drag - Paint-select cameras\n"
+        "ESC - Turn off"
     )
     bl_options = {"INTERNAL"}
 
@@ -1836,10 +1835,148 @@ class CAMGRID_OT_refresh_previews(Operator):
         return {"FINISHED"}
 
 
+class CAMGRID_OT_frame_camera_above_grid(Operator):
+    bl_idname = "camgrid.frame_camera_above_grid"
+    bl_label = "Frame Camera Above Grid"
+    bl_description = "Fit camera view to the viewport with margins, respecting sidebar and toolbar panels"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        if not context.area or context.area.type != "VIEW_3D":
+            return False
+        if not context.scene.camera:
+            return False
+        space = context.space_data
+        if not space or not hasattr(space, "region_3d") or not space.region_3d:
+            return False
+        return True
+
+    def execute(self, context):
+        area = context.area
+        region = context.region
+
+        if not region or region.type != "WINDOW":
+            for r in area.regions:
+                if r.type == "WINDOW":
+                    region = r
+                    break
+
+        if not region:
+            self.report({"WARNING"}, "No viewport region found")
+            return {"CANCELLED"}
+
+        # Switch to camera view if not already
+        space = context.space_data
+        if space.region_3d.view_perspective != "CAMERA":
+            try:
+                bpy.ops.view3d.view_camera("EXEC_DEFAULT")
+            except Exception:
+                pass
+
+        region_h = float(region.height)
+        region_w = float(region.width)
+        if region_h <= 0 or region_w <= 0:
+            return {"CANCELLED"}
+
+        if is_grid_active(context):
+            layout = _compute_grid_layout(context, area=area, region=region)
+        else:
+            layout = None
+
+        if layout:
+            margin = 15 * layout["scale"]
+            grid_top = layout["origin_y"] + layout["visible_rows"] * (layout["th"] + layout["gap"]) + margin
+            scale = layout["scale"]
+        else:
+            scale = _get_ui_scale()
+            grid_top = 30.0 * scale
+
+        top_margin = 30.0 * scale
+        grid_frac = min(0.6, grid_top / region_h)
+
+        left_overlap, right_overlap = _get_left_right_overlap(area)
+        ui_scale = _get_ui_scale()
+        side_padding = (HORIZONTAL_PADDING * ui_scale) / 2.0
+        avail_w = max(1.0, region_w - left_overlap - right_overlap - 2.0 * side_padding)
+        avail_vh = max(1.0, (1.0 - grid_frac) * region_h - top_margin)
+
+        if grid_frac <= 0:
+            return {"CANCELLED"}
+
+        # 1. Reset framing to standard perfect center (auto-frame bounds)
+        try:
+            bpy.ops.view3d.view_center_camera("EXEC_DEFAULT")
+        except Exception:
+            pass
+
+        rv3d = context.space_data.region_3d
+
+        # 2. Extract baseline zoom level established by centering.
+        # Blender's view_camera_zoom-to-scale conversion:
+        #   zoom_factor = (√2/100 * zoom + 1)²     (see Blender SE #332311)
+        # At zoom=0, zoom_factor=1.0 (no scaling).
+        z_base = float(rv3d.view_camera_zoom)
+        sqrt2_100 = math.sqrt(2.0) / 100.0
+        zoom_factor_base = max(0.01, (sqrt2_100 * z_base + 1.0) ** 2)
+
+        # 3. Determine aspect ratios
+        render = context.scene.render
+        if render.resolution_y > 0 and render.pixel_aspect_y > 0:
+            cam_aspect = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+        else:
+            cam_aspect = 1.0
+
+        view_aspect = region_w / region_h
+
+        # 4. Calculate frame size at baseline
+        if cam_aspect > view_aspect:
+            fit_frame_w = region_w
+            fit_frame_h = region_w / cam_aspect
+        else:
+            fit_frame_h = region_h
+            fit_frame_w = region_h * cam_aspect
+
+        # 5. Determine tighter constraint: frame width (sidebar/toolbar) vs. height (grid)
+        scale_h = avail_w / fit_frame_w
+        scale_v = avail_vh / fit_frame_h
+        scale = min(scale_h, scale_v, 1.0)
+
+        if scale < 1.0:
+            zoom_factor_new = zoom_factor_base * scale
+            z_new = (1.0 / sqrt2_100) * (math.sqrt(zoom_factor_new) - 1.0)
+            rv3d.view_camera_zoom = max(-29.9, z_new)
+        else:
+            scale = 1.0
+            zoom_factor_new = zoom_factor_base
+            rv3d.view_camera_zoom = z_base
+
+        # 6. Center frame horizontally between toolbar/sidebar, then shift it up
+        #    so the frame bottom aligns with the grid top.
+        # Blender's view_camera_offset sensitivity (per StackExchange #332311):
+        #   1.0 offset = zoom_factor × region_dim pixels
+        # This holds for any zoom level and both axes — no magic constants.
+        zoom_factor_final = (sqrt2_100 * rv3d.view_camera_zoom + 1.0) ** 2
+
+        K_h = zoom_factor_final * region_w
+        shift_x = (right_overlap - left_overlap) / 2.0
+        offset_x = shift_x / K_h
+
+        K_v = zoom_factor_final * region_h
+        shift_needed = (grid_top - top_margin) / 2.0
+        offset_y = shift_needed / K_v
+
+        rv3d.view_camera_offset[0] = offset_x
+        rv3d.view_camera_offset[1] = -offset_y
+
+        return {"FINISHED"}
+
+
 classes = (
     CAMGRID_OT_toggle_grid,
     CAMGRID_OT_interactive_grid,
     CAMGRID_OT_refresh_previews,
+    CAMGRID_OT_frame_camera_above_grid,
 )
 
 
