@@ -50,7 +50,7 @@ SCROLLBAR_PADDING = TILE_GAP
 SCROLLBAR_MIN_THUMB = round(TILE_HEIGHT / 2)
 
 # Font
-FONT_SIZE = 10
+FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
 INFO_TEXT_OFFSET_Y = (BOTTOM_MARGIN - TILE_HEIGHT + TILE_GAP) * 2
@@ -1167,7 +1167,7 @@ def _draw_grid():
         # ---
         # Draw the name label — badge overlay in thumbnail mode, centered in tile mode.
         # ---
-        if prefs.settings.display_type == "THUMBNAILS":
+        if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
             badge_font_id = BADGE_FONT_ID
             blf.size(badge_font_id, max(6, int(FONT_SIZE)))
             badge_text_width, badge_text_height = blf.dimensions(badge_font_id, text)
@@ -1197,7 +1197,7 @@ def _draw_grid():
             text_x = bg_x + pad
             text_y = bg_y + pad
             _draw_text_with_shadow(badge_font_id, text, text_x, text_y, colors["text"], scale)
-        else:
+        elif prefs.settings.display_type != "THUMBNAILS":
             text_x = x + (tw - text_width) / 2
             text_y = y + (th - text_height) / 2
             _draw_text_with_shadow(font_id, text, text_x, text_y, colors["text"], scale)
@@ -1360,10 +1360,9 @@ class CAMGRID_OT_toggle_grid(Operator):
 
 
 class CAMGRID_OT_interactive_grid(Operator):
-    """Clickable camera grid overlay — click a tile to activate that camera."""
-
     bl_idname = "camgrid.interactive_grid"
     bl_label = "Interactive Camera Grid"
+    bl_description = "Camera grid overlay, click a tile to switch cameras"
     bl_options = {"INTERNAL"}
 
     def modal(self, context, event):
@@ -1711,9 +1710,9 @@ class CAMGRID_OT_refresh_previews(Operator):
         return {"FINISHED"}
 
 
-class CAMGRID_OT_frame_camera_above_grid(Operator):
-    bl_idname = "camgrid.frame_camera_above_grid"
-    bl_label = "Frame Camera Above Grid"
+class CAMGRID_OT_frame_camera(Operator):
+    bl_idname = "camgrid.frame_camera"
+    bl_label = "Frame Camera"
     bl_description = "Fit camera view to the viewport with margins, respecting sidebar and toolbar panels"
     bl_options = {"INTERNAL"}
 
@@ -1742,7 +1741,6 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
             self.report({"WARNING"}, "No viewport region found")
             return {"CANCELLED"}
 
-        # Switch to camera view if not already
         space = context.space_data
         if space.region_3d.view_perspective != "CAMERA":
             try:
@@ -1780,7 +1778,7 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
         if grid_frac <= 0:
             return {"CANCELLED"}
 
-        # 1. Reset framing to standard perfect center (auto-frame bounds)
+        # Center the camera view
         try:
             bpy.ops.view3d.view_center_camera("EXEC_DEFAULT")
         except Exception:
@@ -1788,15 +1786,12 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
 
         rv3d = context.space_data.region_3d
 
-        # 2. Extract baseline zoom level established by centering.
-        # Blender's view_camera_zoom-to-scale conversion:
-        #   zoom_factor = (√2/100 * zoom + 1)²     (see Blender SE #332311)
-        # At zoom=0, zoom_factor=1.0 (no scaling).
+        # zoom_factor = (√2/100 × zoom + 1)²
         z_base = float(rv3d.view_camera_zoom)
         sqrt2_100 = math.sqrt(2.0) / 100.0
         zoom_factor_base = max(0.01, (sqrt2_100 * z_base + 1.0) ** 2)
 
-        # 3. Determine aspect ratios
+        # Aspect ratios
         render = context.scene.render
         if render.resolution_y > 0 and render.pixel_aspect_y > 0:
             cam_aspect = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
@@ -1805,7 +1800,7 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
 
         view_aspect = region_w / region_h
 
-        # 4. Calculate frame size at baseline
+        # Frame size at baseline
         if cam_aspect > view_aspect:
             fit_frame_w = region_w
             fit_frame_h = region_w / cam_aspect
@@ -1813,7 +1808,7 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
             fit_frame_h = region_h
             fit_frame_w = region_h * cam_aspect
 
-        # 5. Determine tighter constraint: frame width (sidebar/toolbar) vs. height (grid)
+        # Fit within available space
         scale_h = avail_w / fit_frame_w
         scale_v = avail_vh / fit_frame_h
         scale = min(scale_h, scale_v, 1.0)
@@ -1827,11 +1822,8 @@ class CAMGRID_OT_frame_camera_above_grid(Operator):
             zoom_factor_new = zoom_factor_base
             rv3d.view_camera_zoom = z_base
 
-        # 6. Center frame horizontally between toolbar/sidebar, then shift it up
-        #    so the frame bottom aligns with the grid top.
-        # Blender's view_camera_offset sensitivity (per StackExchange #332311):
-        #   1.0 offset = zoom_factor × region_dim pixels
-        # This holds for any zoom level and both axes — no magic constants.
+        # Center horizontally, shift up to grid top
+        # view_camera_offset: 1.0 = zoom_factor × region_dim pixels
         zoom_factor_final = (sqrt2_100 * rv3d.view_camera_zoom + 1.0) ** 2
 
         K_h = zoom_factor_final * region_w
@@ -1852,7 +1844,7 @@ classes = (
     CAMGRID_OT_toggle_grid,
     CAMGRID_OT_interactive_grid,
     CAMGRID_OT_refresh_previews,
-    CAMGRID_OT_frame_camera_above_grid,
+    CAMGRID_OT_frame_camera,
 )
 
 

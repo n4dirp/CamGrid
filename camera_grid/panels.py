@@ -38,7 +38,9 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_type == "THUMBNAILS":
-            layout.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
+            col = layout.column()
+            col.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
+            col.prop(prefs.settings, "preview_show_names", text="Show Names")
 
         layout.separator()
         col = layout.column()
@@ -66,5 +68,5 @@ def draw_grid_header_button(self, context):
     grid_active = viewport_grid.is_grid_active(context)
     if grid_active and prefs.settings.display_type == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
-    row.operator("camgrid.frame_camera_above_grid", text="", icon="MOD_LENGTH")
+    row.operator("camgrid.frame_camera", text="", icon="MOD_LENGTH")
     row.popover("CAMGRID_PT_grid_popup", text="")

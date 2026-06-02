@@ -149,6 +149,11 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Temporarily disable viewport overlays while rendering preview thumbnails",
         default=True,
     )
+    preview_show_names: BoolProperty(
+        name="Show Names",
+        description="Display camera names on tiles in preview mode",
+        default=True,
+    )
     preview_cache_size: IntProperty(
         name="Preview Cache Size",
         description="Maximum number of camera preview thumbnails kept in GPU memory",
