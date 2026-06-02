@@ -1,6 +1,5 @@
 """Viewport camera grid overlay for Camera Grid extension."""
 
-import ctypes
 import logging
 import math
 import time
@@ -17,50 +16,19 @@ from gpu_extras.presets import draw_texture_2d
 # ------------------------------------------------------------------------
 #    Helpers (inlined)
 # ------------------------------------------------------------------------
-
-_EVENT_TYPE_OFFSET = 16
-_VALID_EVENT_TYPES = None
-
-
-def _get_safe_event_type(event) -> str:
-    """Return event type without triggering RNA enum warnings."""
-    global _VALID_EVENT_TYPES
-
-    if _VALID_EVENT_TYPES is None:
-        try:
-            _VALID_EVENT_TYPES = {
-                item.value: item.identifier for item in bpy.types.Event.bl_rna.properties["type"].enum_items
-            }
-        except Exception:
-            _VALID_EVENT_TYPES = {}
-
-    try:
-        ptr = event.as_pointer()
-        if not ptr:
-            return "NONE"
-        raw_type = ctypes.c_int16.from_address(ptr + _EVENT_TYPE_OFFSET).value
-        return _VALID_EVENT_TYPES.get(raw_type, "NONE")
-    except Exception:
-        return "NONE"
-
-
-def redraw_ui(mode: str = "VIEW_3D", area_pointer: int | None = None) -> None:
-    """Redraw Blender UI areas."""
-    ctx = bpy.context
-    if not ctx or not ctx.window_manager:
-        return
-    for window in ctx.window_manager.windows:
-        screen = window.screen
-        for area in screen.areas:
-            if area_pointer is not None:
-                try:
-                    if area.as_pointer() != area_pointer:
-                        continue
-                except ReferenceError:
-                    continue
-            if mode == "ALL" or area.type == mode:
-                area.tag_redraw()
-
+from .helpers import (
+    _compute_outline_color,
+    _get_asset_shelf_height,
+    _get_bottom_header_height,
+    _get_left_right_overlap,
+    _get_safe_event_type,
+    _get_ui_scale,
+    _optimize_grid_columns,
+    _rgba,
+    _theme,
+    color_contrast,
+    redraw_ui,
+)
 
 logger = logging.getLogger(__package__)
 
@@ -86,12 +54,6 @@ FONT_SIZE = 10
 FONT_ID = 0
 BADGE_FONT_ID = 0
 INFO_TEXT_OFFSET_Y = (BOTTOM_MARGIN - TILE_HEIGHT + TILE_GAP) * 2
-
-# Text Outline / Readability
-LUMINANCE_R = 0.299
-LUMINANCE_G = 0.587
-LUMINANCE_B = 0.114
-OUTLINE_ALPHA = 0.8
 
 _handler = None
 _target_area_pointer = None
@@ -177,27 +139,6 @@ def get_rounded_rect_perimeter(x, y, w, h, r, segments=6):
     return [(x + vx, y + vy) for vx, vy in base_verts]
 
 
-@lru_cache(maxsize=32)
-def _theme(path, default):
-    """Accesses and caches dynamic path theme options on standard floats or tuples."""
-    prefs = bpy.context.preferences
-    if not prefs.themes:
-        return default
-    value = prefs.themes[0]
-    try:
-        for part in path.split("."):
-            value = getattr(value, part)
-        if hasattr(value, "copy"):
-            return tuple(value)
-        return value
-    except AttributeError:
-        return default
-
-
-def _rgba(value, alpha):
-    return (*value[:3], alpha)
-
-
 def _get_theme_colors():
     text = _theme("view_3d.space.header_text", (1.0, 1.0, 1.0))
 
@@ -209,48 +150,6 @@ def _get_theme_colors():
         "text": _rgba(text, 0.9),
         "info_text": _rgba(text, 0.75),
     }
-
-
-def _get_ui_scale():
-    return bpy.context.preferences.system.ui_scale
-
-
-def _get_asset_shelf_height(area):
-    """Calculate the cumulative height of any active Asset Shelf regions in the given area."""
-    shelf_height = 0
-    for region in area.regions:
-        if "ASSET_SHELF" in region.type:
-            shelf_height += region.height
-    return shelf_height
-
-
-def _get_bottom_header_height(area):
-    """Height of bottom HEADER that overlaps the WINDOW region, or 0."""
-    for region in area.regions:
-        if region.type == "HEADER" and getattr(region, "alignment", "") == "BOTTOM":
-            return region.height
-
-    return 0
-
-
-def _get_left_right_overlap(area):
-    """Get widths of left (TOOLS) and right (UI) overlapping regions."""
-    left = right = 0
-    for region in area.regions:
-        if region.type == "TOOLS":
-            left = region.width
-        elif region.type == "UI":
-            right = region.width
-    return left, right
-
-
-def _compute_outline_color(rgb: tuple[float, float, float]) -> tuple[float, float, float, float]:
-    """Compute an appropriate black or white outline color based on input luminance for contrast."""
-    luminance = rgb[0] * LUMINANCE_R + rgb[1] * LUMINANCE_G + rgb[2] * LUMINANCE_B
-    if_luminance = luminance > 0.5
-    if if_luminance:
-        return (0.0, 0.0, 0.0, OUTLINE_ALPHA)
-    return (1.0, 1.0, 1.0, OUTLINE_ALPHA)
 
 
 def _draw_text_with_shadow(
@@ -282,35 +181,6 @@ def _draw_text_with_shadow(
     blf.draw(font_id, text)
 
     blf.disable(font_id, blf.SHADOW)
-
-
-def _optimize_grid_columns(total_items: int, max_cols: int, max_rows: int) -> int:
-    """Determine an optimal column count to distribute tiles evenly across rows."""
-    if total_items <= 0:
-        return 1
-
-    best_c = max_cols
-    best_score = float("inf")
-
-    # Evaluate all column counts from 1 up to the physical/preference limit
-    for c in range(1, max_cols + 1):
-        r = math.ceil(total_items / c)
-        empty_slots = (c * r) - total_items
-
-        # Scoring heuristic: prioritizes fewer empty slots and slightly penalizes extra rows
-        score = empty_slots + (r * 0.5)
-        if r > max_rows:
-            score += (r - max_rows) * 100.0
-
-        if score < best_score:
-            best_score = score
-            best_c = c
-        elif score == best_score:
-            # On scoring ties, choose the wider layout configuration
-            if c > best_c:
-                best_c = c
-
-    return best_c
 
 
 def _compute_grid_layout(context, area=None, region=None, scene=None):
@@ -611,13 +481,15 @@ def _switch_to_camera_view(context):
             space.region_3d.view_perspective = "CAMERA"
 
 
-def _action_switch_camera(layout, tile_index):
+def _action_switch_camera(layout, tile_index, context=None):
     """Drag action: activate the camera at tile_index."""
     cameras = layout["cameras"]
+    if context is None:
+        context = bpy.context
     if 0 <= tile_index < len(cameras):
-        scene = bpy.context.scene
+        scene = context.scene
         scene.camera = cameras[tile_index]
-    _switch_to_camera_view(bpy.context)
+    _switch_to_camera_view(context)
 
 
 def _action_select_camera(layout, tile_index):
@@ -627,11 +499,6 @@ def _action_select_camera(layout, tile_index):
     if _drag_select_value:
         bpy.context.view_layer.objects.active = cam
     redraw_ui("VIEW_3D", area_pointer=_target_area_pointer)
-
-
-def color_contrast(color, factor: float = 0.85):
-    """Derive a solid outline color from the fill color by darkening it slightly."""
-    return (color[0] * factor, color[1] * factor, color[2] * factor, 1.0)
 
 
 # ------------------------------------------------------------------------
@@ -701,7 +568,6 @@ def _invalidate_thumbnails():
 
     _original_shading_type = None
     _original_show_overlays = None
-    _theme.cache_clear()
     _get_base_rounded_rect.cache_clear()
     logger.debug("PREVIEW: Cache invalidated (gen %d)", _thumbnail_gen)
 
@@ -1285,9 +1151,17 @@ def _draw_grid():
         else:
             max_text_width = tw - 8 * scale
         if blf.dimensions(font_id, text)[0] > max_text_width:
-            while text and blf.dimensions(font_id, text + "...")[0] > max_text_width:
-                text = text[:-1]
-            text += "..." if text else ""
+            max_text_width_no_ellipsis = max_text_width - blf.dimensions(font_id, "...")[0]
+            left = len(text) // 2
+            right = left + 1
+            while (
+                left > 0
+                and right < len(text)
+                and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_text_width_no_ellipsis
+            ):
+                left -= 1
+                right += 1
+            text = text[:left] + "..." + text[right:]
         text_width, text_height = blf.dimensions(font_id, text)
 
         # ---
@@ -1575,7 +1449,7 @@ class CAMGRID_OT_interactive_grid(Operator):
             if tile is not None and tile != _drag_tile:
                 _drag_state = _DragState.LMB_DRAGGING
                 _drag_last_tile = tile
-                _action_switch_camera(layout, tile)
+                _action_switch_camera(layout, tile, context)
 
         elif _drag_state == _DragState.LMB_DRAGGING and layout:
             _drag_last_tile = _drag_tile_action(
@@ -1676,7 +1550,7 @@ class CAMGRID_OT_interactive_grid(Operator):
             _drag_last_tile = -1
             if cam != active_camera:
                 context.scene.camera = cam
-                _switch_to_camera_view(context)
+            _switch_to_camera_view(context)
             if prefs.settings.display_type == "THUMBNAILS":
                 cam_key = cameras[tile_index].name
                 if cam_key in _thumbnail_stale:
@@ -1778,6 +1652,7 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_index != active_index and 0 <= new_index < total:
             context.scene.camera = cameras[new_index]
+            _switch_to_camera_view(context)
         return {"RUNNING_MODAL"}
 
     def _handle_arrow(self, context, event, event_type):
@@ -1808,6 +1683,7 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_index != active_index and 0 <= new_index < total:
             context.scene.camera = cameras[new_index]
+            _switch_to_camera_view(context)
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):

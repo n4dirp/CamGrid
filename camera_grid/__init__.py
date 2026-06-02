@@ -7,8 +7,8 @@ from bpy.props import PointerProperty
 
 from . import viewport_grid
 from .panels import CAMGRID_PT_grid_popup, draw_grid_header_button
-from .preferences import CAMGRID_AddonPreferences, _update_logger_from_prefs
-from .properties import CAMGRID_PG_scene, CAMGRID_PG_settings
+from .preferences import CAMGRID_PG_scene, _update_logger_from_prefs
+from .preferences import classes as prefs_classes
 
 logger = logging.getLogger(__package__)
 logger.propagate = False
@@ -19,9 +19,7 @@ logger.addHandler(logging.NullHandler())
 # ------------------------------------------------------------------------
 
 classes = (
-    CAMGRID_PG_settings,
-    CAMGRID_PG_scene,
-    CAMGRID_AddonPreferences,
+    *prefs_classes,
     CAMGRID_PT_grid_popup,
     *viewport_grid.classes,
 )

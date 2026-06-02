@@ -9,7 +9,6 @@ class CAMGRID_PT_grid_popup(Panel):
     bl_label = "Camera Grid"
     bl_space_type = "VIEW_3D"
     bl_region_type = "WINDOW"
-    bl_options = {"HIDE_HEADER"}
 
     def draw(self, context):
         layout = self.layout
@@ -19,11 +18,11 @@ class CAMGRID_PT_grid_popup(Panel):
         layout.label(text="Camera Grid")
 
         layout.separator()
-        layout.prop(prefs.settings, "view_from_camera", text="Change View on Switch")
-        layout.prop(prefs.settings, "show_hidden")
-        layout.prop(props, "source_collection", text="Filter")
 
-        layout.separator()
+        col = layout.column()
+        col.label(text="Alignment")
+        col.row().prop(prefs.settings, "alignment", expand=True)
+
         col = layout.column()
         col.label(text="Display Mode")
         col.row().prop(prefs.settings, "display_type", text="Display Mode", expand=True)
@@ -34,20 +33,24 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
             sub.prop(prefs.settings, "preview_max_columns", text="Max Columns")
         else:
-            sub.prop(prefs.settings, "tile_size", text="Width")
+            sub.prop(prefs.settings, "tile_size", text="Size")
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_type == "THUMBNAILS":
             layout.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
 
+        layout.separator()
         col = layout.column()
-        col.label(text="Alignment")
-        col.row().prop(prefs.settings, "alignment", expand=True)
-
-        col = layout.column()
+        col.label(text="Interaction")
+        col.prop(prefs.settings, "view_from_camera", text="Switch to Camera View")
         col.label(text="Mouse Wheel")
         col.row().prop(prefs.settings, "wheel_mode", text="Mouse Wheel", expand=True)
+
+        layout.separator()
+        layout.label(text="Source Collection")
+        layout.prop(props, "source_collection", text="")
+        layout.prop(prefs.settings, "show_hidden")
 
 
 def draw_grid_header_button(self, context):
