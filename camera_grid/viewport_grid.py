@@ -1173,10 +1173,10 @@ def _draw_grid():
             badge_text_width, badge_text_height = blf.dimensions(badge_font_id, text)
 
             pad = 4 * scale
-            bg_pad = 2 * scale
+            bg_pad = 4 * scale
             bg_w = badge_text_width + pad * 2
             bg_h = badge_text_height + pad * 2
-            bg_x = x + bg_pad
+            bg_x = x + round((tw - bg_w) / 2)
             bg_y = y + bg_pad
 
             if is_active:
