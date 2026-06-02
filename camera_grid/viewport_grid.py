@@ -82,9 +82,9 @@ SCROLLBAR_PADDING = TILE_GAP
 SCROLLBAR_MIN_THUMB = round(TILE_HEIGHT / 2)
 
 # Font
-FONT_SIZE = 11
+FONT_SIZE = 10
 FONT_ID = 0
-BADGE_FONT_ID = 1
+BADGE_FONT_ID = 0
 INFO_TEXT_OFFSET_Y = (BOTTOM_MARGIN - TILE_HEIGHT + TILE_GAP) * 2
 
 # Text Outline / Readability
@@ -111,6 +111,7 @@ _mouse_in_grid = False
 _thumbnail_cache: dict[str, tuple[int, gpu.types.GPUOffScreen, tuple, float]] = {}
 _thumbnail_gen: int = 0
 _thumbnail_pending: set[str] = set()
+_thumbnail_stale: set[str] = set()
 _in_preview_render: bool = False
 _render_timer_active: bool = False
 _preview_rendered_count: int = 0
@@ -367,6 +368,12 @@ def _compute_grid_layout(context, area=None, region=None, scene=None):
 
     prefs = context.preferences.addons.get(__package__).preferences
 
+    if prefs.settings.show_only_visible:
+        cameras = [cam for cam in cameras if cam.visible_get()]
+    total_cameras = len(cameras)
+    if total_cameras < 1:
+        return None
+
     scale = _get_ui_scale()
     try:
         shelf_height = _get_asset_shelf_height(area)
@@ -390,7 +397,7 @@ def _compute_grid_layout(context, area=None, region=None, scene=None):
         th = preview_h * scale
         effective_max_rows = prefs.settings.preview_max_rows
     else:
-        tw = TILE_WIDTH * scale
+        tw = prefs.settings.tile_size * scale
         th = TILE_HEIGHT * scale
         effective_max_rows = prefs.settings.max_rows
 
@@ -668,6 +675,7 @@ def _invalidate_thumbnails():
     global _thumbnail_cache, _thumbnail_gen, _thumbnail_pending, _in_preview_render, _render_timer_active
     global _preview_rendered_count, _render_elapsed_ms
     global _original_shading_type, _original_show_overlays
+    global _thumbnail_stale
     for item in list(_thumbnail_cache.values()):
         try:
             offscreen = item[1]
@@ -676,6 +684,7 @@ def _invalidate_thumbnails():
             pass
     _thumbnail_cache.clear()
     _thumbnail_pending.clear()
+    _thumbnail_stale.clear()
     _thumbnail_gen += 1
     _in_preview_render = False
     _render_timer_active = False
@@ -965,6 +974,9 @@ def _draw_grid():
     if not layout:
         return
 
+    # ---
+    # Unpack computed layout values.
+    # ---
     cameras = layout["cameras"]
     columns = layout["columns"]
     start_index = layout["start_index"]
@@ -984,6 +996,9 @@ def _draw_grid():
     grid_width = layout["grid_width"]
     region = layout["region"]
 
+    # ---
+    # Theme, shader, and font setup for the draw pass.
+    # ---
     try:
         colors = _get_theme_colors()
     except (AttributeError, IndexError, ReferenceError):
@@ -994,6 +1009,9 @@ def _draw_grid():
 
     prefs = bpy.context.preferences.addons.get(__package__).preferences
 
+    # ---
+    # Evict orphaned thumbnails whose cameras no longer exist.
+    # ---
     existing_camera_names = {cam.name for cam in cameras}
     for cam_name in list(_thumbnail_cache.keys()):
         if cam_name not in existing_camera_names:
@@ -1003,6 +1021,10 @@ def _draw_grid():
             except Exception:
                 pass
 
+    # ---
+    # Thumbnail mode: detect stale/missing tiles and queue precaching.
+    # Precache extends N rows above and below the visible window.
+    # ---
     if prefs.settings.display_type == "THUMBNAILS":
         active_scene = bpy.context.scene
 
@@ -1011,15 +1033,13 @@ def _draw_grid():
             cam = cameras[idx]
             cam_key = cam.name
             cached = _thumbnail_cache.get(cam_key)
-            is_valid = False
-            if cached is not None:
+            if cached is None:
+                missing_visible = True
+            else:
                 cached_gen, _, cached_sig, _ = cached
                 current_sig = _get_camera_state_signature(cam, active_scene)
-                if cached_gen == _thumbnail_gen and cached_sig == current_sig:
-                    is_valid = True
-            if not is_valid:
-                missing_visible = True
-                break
+                if not (cached_gen == _thumbnail_gen and cached_sig == current_sig):
+                    _thumbnail_stale.add(cam_key)
 
         if missing_visible:
             precache_start_row = max(0, start_row - prefs.settings.preview_precache_rows)
@@ -1039,6 +1059,7 @@ def _draw_grid():
 
             precache_keys = {cameras[idx].name for idx in queue_candidates}
 
+            # Drop queued renders for tiles no longer in the precache window.
             for pending_key in list(_thumbnail_pending):
                 if pending_key not in precache_keys:
                     _thumbnail_pending.discard(pending_key)
@@ -1047,18 +1068,20 @@ def _draw_grid():
                 cam = cameras[idx]
                 cam_key = cam.name
 
-                is_valid = False
                 cached = _thumbnail_cache.get(cam_key)
-                if cached is not None:
-                    cached_gen, _, cached_sig, _ = cached
-                    current_sig = _get_camera_state_signature(cam, active_scene)
-                    if cached_gen == _thumbnail_gen and cached_sig == current_sig:
-                        is_valid = True
-
-                if not is_valid:
+                if cached is None:
                     if cam_key not in _thumbnail_pending and not _in_preview_render:
                         _queue_thumbnail_render(cam_key)
+                else:
+                    cached_gen, _, cached_sig, _ = cached
+                    current_sig = _get_camera_state_signature(cam, active_scene)
+                    if not (cached_gen == _thumbnail_gen and cached_sig == current_sig):
+                        _thumbnail_stale.add(cam_key)
 
+    # ---
+    # Draw the semi-transparent background panel that contains all tiles.
+    # Extend bounds to include the scrollbar when present.
+    # ---
     bg_margin = gap
     grid_left = origin_x - bg_margin
     grid_right = origin_x + grid_width + bg_margin
@@ -1093,6 +1116,10 @@ def _draw_grid():
 
     active_scene = bpy.context.scene
 
+    # ---
+    # Render each visible camera tile: thumbnail or colored panel,
+    # selection/active borders, and truncated name label.
+    # ---
     for i in range(start_index, end_index):
         cam = cameras[i]
         column = i % columns
@@ -1102,6 +1129,7 @@ def _draw_grid():
         x = origin_x + column * (tw + gap)
         y = origin_y + drawn_row * (th + gap)
 
+        # Skip tiles outside the visible viewport.
         if y > region.height or y + th < 0:
             continue
 
@@ -1113,22 +1141,29 @@ def _draw_grid():
             cached = _thumbnail_cache.get(cam_key)
 
             is_valid = False
+            is_stale = False
             current_sig = _get_camera_state_signature(cam, active_scene)
 
             if cached is not None:
                 cached_gen, offscreen, cached_sig, _ = cached
                 if cached_gen == _thumbnail_gen and cached_sig == current_sig:
                     is_valid = True
+                elif cached_gen == _thumbnail_gen:
+                    is_stale = True
 
+            # Priority 1: draw a valid cached thumbnail, dimmed if active or not selected.
             if is_valid:
                 _thumbnail_cache[cam_key] = (cached[0], cached[1], cached[2], time.monotonic())
+                _thumbnail_stale.discard(cam_key)
                 offscreen = cached[1]
                 gpu.state.depth_mask_set(False)
                 gpu.state.blend_set("ALPHA")
                 draw_texture_2d(offscreen.texture_color, (x, y), tw, th)
 
                 if (is_active or not selected) and (not _mouse_in_grid or is_active):
-                    dim_color = _rgba(colors["tile_picked"][:3], 0.35) if is_active else (0.0, 0.0, 0.0, 0.35)
+                    dim_color = (
+                        _rgba(colors["tile_picked"][:3], 0.15) if is_active else _rgba(colors["tile_default"][:3], 0.15)
+                    )
                     dim_perimeter = get_rounded_rect_perimeter(x, y, tw, th, radius)
                     dim_coords = [(x + tw / 2, y + th / 2)] + dim_perimeter + [dim_perimeter[0]]
                     dim_batch = batch_for_shader(shader, "TRI_FAN", {"pos": dim_coords})
@@ -1138,6 +1173,30 @@ def _draw_grid():
 
                 gpu.state.blend_set("NONE")
                 gpu.state.depth_mask_set(True)
+            # Priority 2: stale thumbnail — show dimmed preview beneath a fallback color.
+            elif is_stale:
+                _thumbnail_stale.add(cam_key)
+                color = colors["tile_default"]
+                perimeter = get_rounded_rect_perimeter(x, y, tw, th, radius)
+                fill_coords = [(x + tw / 2, y + th / 2)] + perimeter + [perimeter[0]]
+                batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
+                shader.bind()
+                shader.uniform_float("color", color)
+                gpu.state.blend_set("ALPHA")
+                batch.draw(shader)
+
+                offscreen = cached[1]
+                draw_texture_2d(offscreen.texture_color, (x, y), tw, th)
+
+                dim_color = _rgba(colors["tile_default"], 0.85)
+                dim_perimeter = get_rounded_rect_perimeter(x, y, tw, th, radius)
+                dim_coords = [(x + tw / 2, y + th / 2)] + dim_perimeter + [dim_perimeter[0]]
+                dim_batch = batch_for_shader(shader, "TRI_FAN", {"pos": dim_coords})
+                shader.bind()
+                shader.uniform_float("color", dim_color)
+                dim_batch.draw(shader)
+                gpu.state.blend_set("NONE")
+            # Priority 3: no thumbnail available — draw fallback colored tile.
             else:
                 color = colors["tile_default"]
                 if _mouse_in_grid:
@@ -1151,6 +1210,7 @@ def _draw_grid():
                 batch.draw(shader)
 
         else:
+            # Draw colored tile — picked color for active camera, hover highlight else.
             color = colors["tile_default"]
             if is_active:
                 color = colors["tile_picked"]
@@ -1163,6 +1223,9 @@ def _draw_grid():
             shader.uniform_float("color", color)
             batch.draw(shader)
 
+        # ---
+        # Draw thumbnail border, active highlight, and selection outline.
+        # ---
         if prefs.settings.display_type == "THUMBNAILS":
             border_coords = [(x + tw, y), (x, y), (x, y + th), (x + tw, y + th), (x + tw, y)]
             line_batch = batch_for_shader(shader, "LINE_STRIP", {"pos": border_coords})
@@ -1196,6 +1259,26 @@ def _draw_grid():
             line_batch.draw(shader)
             gpu.state.line_width_set(1.0)
 
+        if selected and is_active:
+            inset_amount = 2.0 * scale
+            inner_x = x + inset_amount
+            inner_y = y + inset_amount
+            inner_tw = tw - 2.0 * inset_amount
+            inner_th = th - 2.0 * inset_amount
+            if inner_tw > 0 and inner_th > 0:
+                inner_radius = max(0.0, radius - inset_amount)
+                inner_perimeter = get_rounded_rect_perimeter(inner_x, inner_y, inner_tw, inner_th, inner_radius)
+                inner_border_coords = inner_perimeter + [inner_perimeter[0]]
+                inner_batch = batch_for_shader(shader, "LINE_STRIP", {"pos": inner_border_coords})
+                gpu.state.line_width_set(1.5 * scale)
+                shader.bind()
+                shader.uniform_float("color", colors["tile_picked"])
+                inner_batch.draw(shader)
+                gpu.state.line_width_set(1.0)
+
+        # ---
+        # Truncate the camera name to fit the tile width.
+        # ---
         text = cam.name
         if prefs.settings.display_type == "THUMBNAILS":
             max_text_width = tw - 12 * scale
@@ -1207,9 +1290,12 @@ def _draw_grid():
             text += "..." if text else ""
         text_width, text_height = blf.dimensions(font_id, text)
 
+        # ---
+        # Draw the name label — badge overlay in thumbnail mode, centered in tile mode.
+        # ---
         if prefs.settings.display_type == "THUMBNAILS":
             badge_font_id = BADGE_FONT_ID
-            blf.size(badge_font_id, max(6, int(FONT_SIZE * 0.75)))
+            blf.size(badge_font_id, max(6, int(FONT_SIZE)))
             badge_text_width, badge_text_height = blf.dimensions(badge_font_id, text)
 
             pad = 4 * scale
@@ -1219,10 +1305,10 @@ def _draw_grid():
             bg_x = x + bg_pad
             bg_y = y + bg_pad
 
-            if selected:
-                bg_color = colors["border_active"]
-            elif is_active:
+            if is_active:
                 bg_color = colors["tile_picked"]
+            elif selected:
+                bg_color = colors["border_active"]
             else:
                 bg_color = colors["tile_default"]
             bg_perimeter = get_rounded_rect_perimeter(bg_x, bg_y, bg_w, bg_h, bg_pad)
@@ -1242,13 +1328,19 @@ def _draw_grid():
             text_y = y + (th - text_height) / 2
             _draw_text_with_shadow(font_id, text, text_x, text_y, colors["text"], scale)
 
-    info_text = f"{len(cameras)} Cameras"
+    # ---
+    # Build and draw the footer info text: camera count, scroll range,
+    # selection count, and loading indicator.
+    # ---
+    n = len(cameras)
+    info_text = f"{n} Camera{'s' if n != 1 else ''}"
 
     if total_rows > layout["effective_max_rows"]:
         info_text = f"{info_text} ({start_index + 1}-{end_index})"
 
         sb_layout = _get_scrollbar_layout(layout)
         if sb_layout:
+            # Draw the scrollbar thumb for grids with more rows than visible space.
             track_left = sb_layout["track_left"]
             thumb_y = sb_layout["thumb_y"]
             thumb_h = sb_layout["thumb_h"]
@@ -1307,6 +1399,7 @@ def _reset_grid_state():
     global _drag_state, _drag_tile, _drag_last_tile, _drag_last_scroll_time, _drag_select_value
     global _preview_rendered_count, _render_elapsed_ms
     global _original_shading_type, _original_show_overlays
+    global _thumbnail_stale
 
     context = bpy.context
     target_area = next(
@@ -1562,6 +1655,7 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         cameras = layout["cameras"]
         active_camera = layout["active_camera"]
+        prefs = context.preferences.addons.get(__package__).preferences
         tile_index = _get_tile_at_mouse(layout, mx, my)
 
         if tile_index is not None:
@@ -1584,6 +1678,12 @@ class CAMGRID_OT_interactive_grid(Operator):
             if cam != active_camera:
                 context.scene.camera = cam
                 _switch_to_camera_view(context)
+            if prefs.settings.display_type == "THUMBNAILS":
+                cam_key = cameras[tile_index].name
+                if cam_key in _thumbnail_stale:
+                    _thumbnail_stale.discard(cam_key)
+                    if cam_key not in _thumbnail_pending and not _in_preview_render:
+                        _queue_thumbnail_render(cam_key)
             return {"RUNNING_MODAL"}
 
         _drag_state = _DragState.IDLE
@@ -1728,6 +1828,10 @@ class CAMGRID_OT_refresh_previews(Operator):
 
     def execute(self, context):
         _invalidate_thumbnails()
+        _thumbnail_stale.clear()
+        for cam in bpy.data.objects:
+            if cam.type == "CAMERA":
+                _queue_thumbnail_render(cam.name)
         redraw_ui("VIEW_3D")
         return {"FINISHED"}
 
@@ -1749,6 +1853,7 @@ def unregister():
     global _drag_state, _drag_tile, _drag_last_tile, _drag_last_scroll_time, _drag_select_value
     global _preview_rendered_count, _render_elapsed_ms
     global _original_shading_type, _original_show_overlays
+    global _thumbnail_stale
     _invalidate_thumbnails()
     _modal_operator = None
     _current_start_row = -1
