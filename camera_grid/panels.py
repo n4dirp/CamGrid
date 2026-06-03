@@ -25,7 +25,7 @@ class CAMGRID_PT_grid_popup(Panel):
 
         col = layout.column()
         col.label(text="Display Mode")
-        col.row().prop(prefs.settings, "display_type", text="Display Mode", expand=True)
+        col.prop(prefs.settings, "display_type", text="Display Mode", expand=True)
 
         col = layout.column()
         col.label(text="Appearance")
@@ -49,8 +49,11 @@ class CAMGRID_PT_grid_popup(Panel):
 
         layout.separator()
         col = layout.column()
-        col.label(text="Interaction")
-        col.prop(prefs.settings, "view_from_camera", text="Switch to Camera View")
+        col.label(text="Grid Interaction")
+        col.prop(prefs.settings, "cycle_cameras", text="Cycle at End/Start")
+
+        col.label(text="On Switch")
+        col.prop(prefs.settings, "on_switch_action", expand=True)
         col.label(text="Mouse Wheel")
         col.row().prop(prefs.settings, "wheel_mode", text="Mouse Wheel", expand=True)
 
@@ -64,14 +67,11 @@ def draw_grid_header_button(self, context):
     if context.area.type != "VIEW_3D":
         return
     layout = self.layout
-
     prefs = context.preferences.addons.get(__package__).preferences
     grid_active = viewport_grid.is_grid_active(context)
 
     row = layout.row(align=True)
-    icon = "RESTRICT_VIEW_OFF" if grid_active else "RESTRICT_VIEW_ON"
-    row.operator("camgrid.toggle_grid", text="", icon=icon, depress=grid_active)
-    grid_active = viewport_grid.is_grid_active(context)
+    row.operator("camgrid.toggle_grid", text="", icon="IMGDISPLAY", depress=grid_active)
     if grid_active and prefs.settings.display_type == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
     row.operator("camgrid.frame_camera", text="", icon="MOD_LENGTH")

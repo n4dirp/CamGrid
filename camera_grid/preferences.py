@@ -176,11 +176,6 @@ class CAMGRID_PG_settings(PropertyGroup):
         soft_max=20,
         max=100,
     )
-    view_from_camera: BoolProperty(
-        name="View from Camera",
-        description="Switch the 3D viewport to camera view when selecting a camera from the grid",
-        default=False,
-    )
     show_hidden: BoolProperty(
         name="Show Hidden",
         description="Include cameras that are hidden in the viewport in the grid",
@@ -190,6 +185,21 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Show Info Text",
         description="Show camera count and selection info below the grid",
         default=True,
+    )
+    on_switch_action: EnumProperty(
+        name="On Switch",
+        description="Action to perform when selecting a camera from the grid",
+        items=[
+            ("NONE", "Keep View", "Keep the current view perspective", "OUTLINER_DATA_CAMERA", 0),
+            ("CAMERA_VIEW", "Camera View", "Switch to camera view", "OUTLINER_OB_CAMERA", 1),
+            ("FRAME", "Frame Camera", "Switch to camera view and fit it to the viewport", "MOD_LENGTH", 2),
+        ],
+        default="NONE",
+    )
+    cycle_cameras: BoolProperty(
+        name="Cycle Cameras",
+        description="Wrap around when reaching the start or end of the camera list",
+        default=False,
     )
     wheel_mode: EnumProperty(
         name="Wheel Mode",

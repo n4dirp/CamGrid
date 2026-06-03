@@ -515,9 +515,6 @@ def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> boo
 
 
 def _switch_to_camera_view(context: Context):
-    prefs = context.preferences.addons.get(__package__).preferences
-    if not prefs.settings.view_from_camera:
-        return
     area = context.area
     if area and area.type == "VIEW_3D":
         space = area.spaces.active
@@ -525,11 +522,23 @@ def _switch_to_camera_view(context: Context):
             space.region_3d.view_perspective = "CAMERA"
 
 
+def _apply_on_switch_action(context):
+    prefs = context.preferences.addons.get(__package__).preferences
+    match prefs.settings.on_switch_action:
+        case "CAMERA_VIEW":
+            _switch_to_camera_view(context)
+        case "FRAME":
+            try:
+                bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
+            except Exception:
+                pass
+
+
 def _action_switch_camera(layout: GridLayout, tile_index: int, context=None):
     context = context or bpy.context
     if 0 <= tile_index < len(layout.cameras):
         context.scene.camera = layout.cameras[tile_index]
-    _switch_to_camera_view(context)
+    _apply_on_switch_action(context)
 
 
 def _action_select_camera(layout: GridLayout, tile_index: int):
@@ -845,7 +854,7 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 elif is_active and is_hovered:
                     overlay_col = _rgba(color_contrast(colors["tile_picked"], 1.3), 0.25)
                 elif is_hovered:
-                    overlay_col = _rgba(colors["text"][:3], 0.15)
+                    overlay_col = _rgba(colors["text"][:3], 0.1)
                 else:
                     overlay_col = _rgba(colors["tile_default"][:3], 0.15)  # Standard dim
 
@@ -866,8 +875,12 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 gpu.state.blend_set("ALPHA")
                 batch.draw(shader)
                 if is_stale:
+                    if is_hovered:
+                        overlay_col = _rgba(colors["text"][:3], 0.1)
+                    else:
+                        overlay_col = _rgba(colors["tile_default"][:3], 0.6)
                     draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
-                    shader.uniform_float("color", _rgba(colors["tile_default"], 0.85))
+                    shader.uniform_float("color", overlay_col)
                     batch.draw(shader)
                 gpu.state.blend_set("NONE")
         else:
@@ -971,6 +984,24 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
             )
 
 
+def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
+    if layout.total_rows <= layout.effective_max_rows:
+        return
+    if sb := _get_scrollbar_layout(layout):
+        sb_w = SCROLLBAR_WIDTH * layout.scale
+        tc = (
+            (sb.track_left, sb.thumb_y),
+            (sb.track_left + sb_w, sb.thumb_y),
+            (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
+            (sb.track_left, sb.thumb_y),
+            (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
+            (sb.track_left, sb.thumb_y + sb.thumb_h),
+        )
+        shader.bind()
+        shader.uniform_float("color", color_contrast(colors["tile_default"], 1.4))
+        batch_for_shader(shader, "TRIS", {"pos": tc}).draw(shader)
+
+
 def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
     font_id = FONT_ID
     n = len(layout.cameras)
@@ -978,19 +1009,6 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
 
     if layout.total_rows > layout.effective_max_rows:
         info_text += f" ({layout.start_index + 1}-{layout.end_index})"
-        if sb := _get_scrollbar_layout(layout):
-            sb_w = SCROLLBAR_WIDTH * layout.scale
-            tc = (
-                (sb.track_left, sb.thumb_y),
-                (sb.track_left + sb_w, sb.thumb_y),
-                (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
-                (sb.track_left, sb.thumb_y),
-                (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
-                (sb.track_left, sb.thumb_y + sb.thumb_h),
-            )
-            shader.bind()
-            shader.uniform_float("color", color_contrast(colors["tile_default"], 1.4))
-            batch_for_shader(shader, "TRIS", {"pos": tc}).draw(shader)
 
     if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
         info_text = f"{sel_count} Selected | {info_text}"
@@ -1029,6 +1047,7 @@ def _draw_grid():
 
     _draw_background_panel(layout, colors, shader)
     _draw_camera_tiles(layout, colors, shader, prefs, active_scene)
+    _draw_scrollbar(layout, colors, shader)
     if prefs.settings.show_info_text:
         _draw_footer_info(layout, colors, shader)
 
@@ -1080,13 +1099,11 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_label = "Camera Grid"
     bl_description = (
         "Toggle the camera grid overlay.\n\n"
-        "LMB / Wheel / Arrows - Switch camera\n"
-        "LMB+Drag - Quick-switch through cameras\n"
-        "Ctrl+Wheel - Navigate up/down\n"
-        "Shift+Wheel - Scroll rows\n"
-        "Drag Scrollbar - Scroll cameras\n"
-        "RMB+Drag - Paint-select cameras\n"
-        "ESC - Turn off"
+        "LMB / Wheel / Arrows - Switch camera.\n"
+        "LMB+Drag - Quick-switch through cameras.\n"
+        "RMB+Drag - Paint-select cameras.\n"
+        "HOME - Frame camera.\n"
+        "F5 - Refresh previews."
     )
     bl_options = {"INTERNAL"}
 
@@ -1133,6 +1150,28 @@ class CAMGRID_OT_interactive_grid(Operator):
 
             case "LEFT_ARROW" | "RIGHT_ARROW" | "UP_ARROW" | "DOWN_ARROW" if event.value == "PRESS":
                 return self._handle_arrow(context, event, event_type)
+
+            case "HOME" if event.value == "PRESS":
+                if is_grid_active(context):
+                    layout = _compute_grid_layout(context)
+                    if layout and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y):
+                        try:
+                            bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
+                        except Exception:
+                            pass
+                    return {"RUNNING_MODAL"}
+
+            case "F5" if event.value == "PRESS":
+                if is_grid_active(context):
+                    layout = _compute_grid_layout(context)
+                    if layout and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y):
+                        prefs = context.preferences.addons.get(__package__).preferences
+                        if prefs.settings.display_type == "THUMBNAILS":
+                            try:
+                                bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
+                            except Exception:
+                                pass
+                return {"RUNNING_MODAL"}
 
             case _:
                 return {"PASS_THROUGH"}
@@ -1257,12 +1296,14 @@ class CAMGRID_OT_interactive_grid(Operator):
             GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = _DragState.LMB_PRESSED, tile_index, -1
             if cam != layout.active_camera:
                 context.scene.camera = cam
-            _switch_to_camera_view(context)
-            if context.preferences.addons.get(__package__).preferences.settings.display_type == "THUMBNAILS":
-                if cam.name in ThumbnailManager.stale:
-                    ThumbnailManager.stale.discard(cam.name)
-                    if cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
-                        ThumbnailManager.queue_render(cam.name)
+            _apply_on_switch_action(context)
+
+            # Auto-Reload Thumbnail - Disabled
+            # if context.preferences.addons.get(__package__).preferences.settings.display_type == "THUMBNAILS":
+            #     if cam.name in ThumbnailManager.stale:
+            #         ThumbnailManager.stale.discard(cam.name)
+            #         if cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
+            #             ThumbnailManager.queue_render(cam.name)
             return {"RUNNING_MODAL"}
 
         if _is_mouse_in_grid(layout, mx, my):
@@ -1314,13 +1355,22 @@ class CAMGRID_OT_interactive_grid(Operator):
                 )
             ]
             idx = col_order.index(layout.active_index)
-            new_idx = col_order[(idx + (1 if event_type == "WHEELUPMOUSE" else -1)) % layout.total_cameras]
+            delta = 1 if event_type == "WHEELUPMOUSE" else -1
+            if prefs.settings.cycle_cameras:
+                new_idx = col_order[(idx + delta) % layout.total_cameras]
+            else:
+                bound = idx + delta
+                new_idx = col_order[bound] if 0 <= bound < len(col_order) else layout.active_index
         else:
-            new_idx = (layout.active_index + (1 if event_type == "WHEELUPMOUSE" else -1)) % layout.total_cameras
+            delta = 1 if event_type == "WHEELUPMOUSE" else -1
+            if prefs.settings.cycle_cameras:
+                new_idx = (layout.active_index + delta) % layout.total_cameras
+            else:
+                new_idx = max(0, min(layout.total_cameras - 1, layout.active_index + delta))
 
         if new_idx != layout.active_index and 0 <= new_idx < layout.total_cameras:
             context.scene.camera = layout.cameras[new_idx]
-            _switch_to_camera_view(context)
+            _apply_on_switch_action(context)
         return {"RUNNING_MODAL"}
 
     def _handle_arrow(self, context: Context, event: Event, event_type: str):
@@ -1333,11 +1383,13 @@ class CAMGRID_OT_interactive_grid(Operator):
         idx = layout.active_index
         tot, cols = layout.total_cameras, layout.columns
 
+        prefs = context.preferences.addons.get(__package__).preferences
+
         match event_type:
             case "LEFT_ARROW":
-                new_idx = (idx - 1 + tot) % tot
+                new_idx = (idx - 1 + tot) % tot if prefs.settings.cycle_cameras else max(0, idx - 1)
             case "RIGHT_ARROW":
-                new_idx = (idx + 1) % tot
+                new_idx = (idx + 1) % tot if prefs.settings.cycle_cameras else min(tot - 1, idx + 1)
             case "UP_ARROW":
                 new_idx = idx + cols if idx + cols < tot else idx
             case "DOWN_ARROW":
@@ -1345,7 +1397,7 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_idx != idx and 0 <= new_idx < tot:
             context.scene.camera = layout.cameras[new_idx]
-            _switch_to_camera_view(context)
+            _apply_on_switch_action(context)
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
