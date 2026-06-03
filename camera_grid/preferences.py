@@ -192,7 +192,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Action to perform when selecting a camera from the grid",
         items=[
             ("NONE", "Keep View", "Keep the current view perspective", "OUTLINER_DATA_CAMERA", 0),
-            ("CAMERA_VIEW", "Camera View", "Switch to camera view", "OUTLINER_OB_CAMERA", 1),
+            ("CAMERA_VIEW", "View Camera", "Switch to camera view", "OUTLINER_OB_CAMERA", 1),
             ("FRAME", "Frame Camera", "Switch to camera view and fit it to the viewport", "MOD_LENGTH", 2),
         ],
         default="NONE",

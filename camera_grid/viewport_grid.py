@@ -307,6 +307,10 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     source_objs = cam_col.objects if cam_col else bpy.data.objects
     cameras = sorted((obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name)
 
+    view_layer = getattr(context, "view_layer", None)
+    if view_layer is not None:
+        cameras = [cam for cam in cameras if cam.name in view_layer.objects]
+
     region = region or getattr(context, "region", None)
     area = area or getattr(context, "area", None)
     if not region or not area:
@@ -543,9 +547,12 @@ def _action_switch_camera(layout: GridLayout, tile_index: int, context=None):
 
 def _action_select_camera(layout: GridLayout, tile_index: int):
     cam = layout.cameras[tile_index]
-    cam.select_set(GridState.drag_select_value)
-    if GridState.drag_select_value:
-        bpy.context.view_layer.objects.active = cam
+    try:
+        cam.select_set(GridState.drag_select_value)
+        if GridState.drag_select_value:
+            bpy.context.view_layer.objects.active = cam
+    except RuntimeError:
+        pass
     redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
 
 
@@ -1291,9 +1298,12 @@ class CAMGRID_OT_interactive_grid(Operator):
                     -1,
                 )
                 GridState.drag_select_value = not cam.select_get()
-                cam.select_set(GridState.drag_select_value)
-                if GridState.drag_select_value:
-                    context.view_layer.objects.active = cam
+                try:
+                    cam.select_set(GridState.drag_select_value)
+                    if GridState.drag_select_value:
+                        context.view_layer.objects.active = cam
+                except RuntimeError:
+                    pass
                 redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
                 return {"RUNNING_MODAL"}
 

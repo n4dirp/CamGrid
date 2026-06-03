@@ -45,7 +45,7 @@ class CAMGRID_PT_grid_popup(Panel):
 
         if prefs.settings.display_type == "THUMBNAILS":
             col.prop(prefs.settings, "preview_show_names", text="Show Camera Name")
-            col.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
+            col.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
 
         layout.separator()
 
