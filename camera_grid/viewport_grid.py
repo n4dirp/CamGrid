@@ -1102,6 +1102,7 @@ class CAMGRID_OT_toggle_grid(Operator):
         "LMB / Wheel / Arrows - Switch camera.\n"
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
+        "Ctrl+Wheel - Resize tiles.\n"
         "HOME - Frame camera.\n"
         "F5 - Refresh previews."
     )
@@ -1347,26 +1348,19 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"RUNNING_MODAL"}
 
         if event.ctrl:
-            col_order = [
-                r * layout.columns + c
-                for c in range(layout.columns)
-                for r in range(
-                    layout.total_cameras // layout.columns + (1 if c < layout.total_cameras % layout.columns else 0)
-                )
-            ]
-            idx = col_order.index(layout.active_index)
-            delta = 1 if event_type == "WHEELUPMOUSE" else -1
-            if prefs.settings.cycle_cameras:
-                new_idx = col_order[(idx + delta) % layout.total_cameras]
+            delta = 8 if event_type == "WHEELUPMOUSE" else -8
+            if prefs.settings.display_type == "THUMBNAILS":
+                prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
             else:
-                bound = idx + delta
-                new_idx = col_order[bound] if 0 <= bound < len(col_order) else layout.active_index
+                prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
+            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+            return {"RUNNING_MODAL"}
+
+        delta = 1 if event_type == "WHEELUPMOUSE" else -1
+        if prefs.settings.cycle_cameras:
+            new_idx = (layout.active_index + delta) % layout.total_cameras
         else:
-            delta = 1 if event_type == "WHEELUPMOUSE" else -1
-            if prefs.settings.cycle_cameras:
-                new_idx = (layout.active_index + delta) % layout.total_cameras
-            else:
-                new_idx = max(0, min(layout.total_cameras - 1, layout.active_index + delta))
+            new_idx = max(0, min(layout.total_cameras - 1, layout.active_index + delta))
 
         if new_idx != layout.active_index and 0 <= new_idx < layout.total_cameras:
             context.scene.camera = layout.cameras[new_idx]
