@@ -6,7 +6,7 @@ from . import viewport_grid
 
 
 class CAMGRID_PT_grid_popup(Panel):
-    bl_label = "Camera Grid"
+    bl_label = "Camera Grid Options"
     bl_space_type = "VIEW_3D"
     bl_region_type = "WINDOW"
 

@@ -2,20 +2,21 @@
 
 import ctypes
 import math
+from typing import Any, TypeVar
 
 import bpy
 
-_EVENT_TYPE_OFFSET = 16
-_VALID_EVENT_TYPES = None
+_EVENT_TYPE_OFFSET: int = 16
+_VALID_EVENT_TYPES: dict[int, str] | None = None
 
 # Text Outline / Readability
-LUMINANCE_R = 0.299
-LUMINANCE_G = 0.587
-LUMINANCE_B = 0.114
-OUTLINE_ALPHA = 0.8
+LUMINANCE_R: float = 0.299
+LUMINANCE_G: float = 0.587
+LUMINANCE_B: float = 0.114
+OUTLINE_ALPHA: float = 0.8
 
 
-def _get_safe_event_type(event) -> str:
+def _get_safe_event_type(event: bpy.types.Event) -> str:
     """Return event type without triggering RNA enum warnings."""
     global _VALID_EVENT_TYPES
 
@@ -55,31 +56,37 @@ def redraw_ui(mode: str = "VIEW_3D", area_pointer: int | None = None) -> None:
                 area.tag_redraw()
 
 
-def _theme(path, default):
+# TypeVar allows type checkers to know the return type matches the 'default' parameter type
+T = TypeVar("T")
+
+
+def _theme(path: str, default: T) -> T:
     """Accesses dynamic path theme options on standard floats or tuples."""
     prefs = bpy.context.preferences
     if not prefs.themes:
         return default
-    value = prefs.themes[0]
+    value: Any = prefs.themes[0]
     try:
         for part in path.split("."):
             value = getattr(value, part)
         if hasattr(value, "copy"):
-            return tuple(value)
+            return tuple(value)  # type: ignore
         return value
     except AttributeError:
         return default
 
 
-def _rgba(value, alpha):
-    return (*value[:3], alpha)
+def _rgba(value: tuple[float, ...], alpha: float) -> tuple[float, float, float, float]:
+    """Convert an RGB/RGBA sequence to a strict 4-element RGBA float tuple."""
+    return (float(value[0]), float(value[1]), float(value[2]), float(alpha))
 
 
-def _get_ui_scale():
-    return bpy.context.preferences.system.ui_scale
+def _get_ui_scale() -> float:
+    """Get the current Blender UI scale."""
+    return float(bpy.context.preferences.system.ui_scale)
 
 
-def _get_asset_shelf_height(area):
+def _get_asset_shelf_height(area: bpy.types.Area) -> int:
     """Calculate the cumulative height of any active Asset Shelf regions in the given area."""
     shelf_height = 0
     for region in area.regions:
@@ -88,31 +95,29 @@ def _get_asset_shelf_height(area):
     return shelf_height
 
 
-def _get_bottom_header_height(area):
+def _get_bottom_header_height(area: bpy.types.Area) -> int:
     """Height of bottom HEADER that overlaps the WINDOW region, or 0."""
     for region in area.regions:
         if region.type == "HEADER" and getattr(region, "alignment", "") == "BOTTOM":
-            return region.height
-
+            return int(region.height)
     return 0
 
 
-def _get_left_right_overlap(area):
+def _get_left_right_overlap(area: bpy.types.Area) -> tuple[int, int]:
     """Get widths of left (TOOLS) and right (UI) overlapping regions."""
     left = right = 0
     for region in area.regions:
         if region.type == "TOOLS":
-            left = region.width
+            left = int(region.width)
         elif region.type == "UI":
-            right = region.width
+            right = int(region.width)
     return left, right
 
 
-def _compute_outline_color(rgb: tuple[float, float, float]) -> tuple[float, float, float, float]:
+def _compute_outline_color(rgb: tuple[float, ...]) -> tuple[float, float, float, float]:
     """Compute an appropriate black or white outline color based on input luminance for contrast."""
     luminance = rgb[0] * LUMINANCE_R + rgb[1] * LUMINANCE_G + rgb[2] * LUMINANCE_B
-    if_luminance = luminance > 0.5
-    if if_luminance:
+    if luminance > 0.5:
         return (0.0, 0.0, 0.0, OUTLINE_ALPHA)
     return (1.0, 1.0, 1.0, OUTLINE_ALPHA)
 
@@ -143,6 +148,6 @@ def _optimize_grid_columns(total_items: int, max_cols: int, max_rows: int) -> in
     return best_c
 
 
-def color_contrast(color, factor: float = 0.85):
-    """Derive a solid outline color from the fill color by darkening it slightly."""
-    return (color[0] * factor, color[1] * factor, color[2] * factor, 1.0)
+def color_contrast(color: tuple[float, ...], factor: float = 0.85) -> tuple[float, float, float, float]:
+    """Derive a solid color from the input color by darkening/lightening it strictly as a 4-element tuple."""
+    return (float(color[0] * factor), float(color[1] * factor), float(color[2] * factor), 1.0)

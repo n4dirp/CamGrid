@@ -71,7 +71,7 @@ class AddonLogFormatter(logging.Formatter):
 
 
 def _update_display_type(self, context):
-    viewport_grid._invalidate_thumbnails()
+    viewport_grid.ThumbnailManager.invalidate()
     redraw_ui("VIEW_3D")
 
 
