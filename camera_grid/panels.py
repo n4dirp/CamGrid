@@ -27,7 +27,10 @@ class CAMGRID_PT_grid_popup(Panel):
         col.label(text="Display Mode")
         col.row().prop(prefs.settings, "display_type", text="Display Mode", expand=True)
 
-        sub = layout.column(align=True)
+        col = layout.column()
+        col.label(text="Appearance")
+
+        sub = col.column(align=True)
         if prefs.settings.display_type == "THUMBNAILS":
             sub.prop(prefs.settings, "preview_size", text="Size")
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
@@ -37,8 +40,10 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
+        col = layout.column()
+        col.prop(prefs.settings, "show_info_text", text="Show Info Text")
+
         if prefs.settings.display_type == "THUMBNAILS":
-            col = layout.column()
             col.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
             col.prop(prefs.settings, "preview_show_names", text="Show Names")
 
@@ -64,7 +69,8 @@ def draw_grid_header_button(self, context):
     grid_active = viewport_grid.is_grid_active(context)
 
     row = layout.row(align=True)
-    row.operator("camgrid.toggle_grid", text="", icon="RESTRICT_VIEW_ON", depress=grid_active)
+    icon = "RESTRICT_VIEW_OFF" if grid_active else "RESTRICT_VIEW_ON"
+    row.operator("camgrid.toggle_grid", text="", icon=icon, depress=grid_active)
     grid_active = viewport_grid.is_grid_active(context)
     if grid_active and prefs.settings.display_type == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")

@@ -361,6 +361,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     gap = TILE_GAP * scale
     radius = ROUNDING * scale
     bottom_margin = BOTTOM_MARGIN * scale + shelf_height + bottom_header_height
+    if not prefs.settings.show_info_text:
+        bottom_margin -= INFO_TEXT_OFFSET_Y * scale
     side_padding = (HORIZONTAL_PADDING * scale) / 2.0
     left_bound = left_overlap + side_padding
     right_bound = region.width - right_overlap - side_padding
@@ -498,7 +500,9 @@ def _get_tile_at_mouse(layout: GridLayout, mouse_x: float, mouse_y: float) -> in
 def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> bool:
     grid_left = layout.origin_x - layout.gap
     grid_right = layout.origin_x + layout.grid_width + layout.gap
-    grid_bottom = layout.origin_y - layout.info_offset_y - layout.gap
+    prefs = bpy.context.preferences.addons.get(__package__).preferences
+    info_offset = layout.info_offset_y if prefs.settings.show_info_text else 0.0
+    grid_bottom = layout.origin_y - info_offset - layout.gap
     grid_top = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
 
     if sb := _get_scrollbar_layout(layout):
@@ -1025,7 +1029,8 @@ def _draw_grid():
 
     _draw_background_panel(layout, colors, shader)
     _draw_camera_tiles(layout, colors, shader, prefs, active_scene)
-    _draw_footer_info(layout, colors, shader)
+    if prefs.settings.show_info_text:
+        _draw_footer_info(layout, colors, shader)
 
 
 # ------------------------------------------------------------------------

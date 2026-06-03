@@ -186,6 +186,11 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Include cameras that are hidden in the viewport in the grid",
         default=False,
     )
+    show_info_text: BoolProperty(
+        name="Show Info Text",
+        description="Show camera count and selection info below the grid",
+        default=True,
+    )
     wheel_mode: EnumProperty(
         name="Wheel Mode",
         description="Mouse wheel behavior in the camera grid",
