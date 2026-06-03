@@ -1,4 +1,6 @@
-"""Camera Grid - Standalone viewport camera grid overlay extension."""
+# Camera Grid - Blender Extension
+# Viewport camera grid overlay for quick camera switching
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import logging
 

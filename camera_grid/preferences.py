@@ -39,6 +39,7 @@ def _update_logger_from_prefs():
 
     if not enabled:
         logger.addHandler(logging.NullHandler())
+        logger.propagate = False
         return
 
     level_map = {"INFO": logging.INFO, "DEBUG": logging.DEBUG, "TRACE": TRACE_LEVEL}

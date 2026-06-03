@@ -1067,6 +1067,14 @@ def is_grid_active(context: Context | None = None) -> bool:
     return False
 
 
+def _is_grid_key_event(context: Context, event: Event) -> bool:
+    """Return True if a keyboard event targets the grid (mouse is hovering over it)."""
+    if not is_grid_active(context):
+        return False
+    layout = _compute_grid_layout(context)
+    return layout is not None and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y)
+
+
 def toggle_grid():
     curr_area_ptr = bpy.context.area.as_pointer()
 
@@ -1099,6 +1107,7 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_label = "Camera Grid"
     bl_description = (
         "Toggle the camera grid overlay.\n\n"
+        "Camera grid controls (cursor over grid):\n"
         "LMB / Wheel / Arrows - Switch camera.\n"
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
@@ -1152,26 +1161,20 @@ class CAMGRID_OT_interactive_grid(Operator):
             case "LEFT_ARROW" | "RIGHT_ARROW" | "UP_ARROW" | "DOWN_ARROW" if event.value == "PRESS":
                 return self._handle_arrow(context, event, event_type)
 
-            case "HOME" if event.value == "PRESS":
-                if is_grid_active(context):
-                    layout = _compute_grid_layout(context)
-                    if layout and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y):
-                        try:
-                            bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
-                        except Exception:
-                            pass
-                    return {"RUNNING_MODAL"}
+            case "HOME" if event.value == "PRESS" and _is_grid_key_event(context, event):
+                try:
+                    bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
+                except Exception:
+                    pass
+                return {"RUNNING_MODAL"}
 
-            case "F5" if event.value == "PRESS":
-                if is_grid_active(context):
-                    layout = _compute_grid_layout(context)
-                    if layout and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y):
-                        prefs = context.preferences.addons.get(__package__).preferences
-                        if prefs.settings.display_type == "THUMBNAILS":
-                            try:
-                                bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
-                            except Exception:
-                                pass
+            case "F5" if event.value == "PRESS" and _is_grid_key_event(context, event):
+                prefs = context.preferences.addons.get(__package__).preferences
+                if prefs.settings.display_type == "THUMBNAILS":
+                    try:
+                        bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
+                    except Exception:
+                        pass
                 return {"RUNNING_MODAL"}
 
             case _:
@@ -1328,6 +1331,16 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"PASS_THROUGH"}
 
         prefs = context.preferences.addons.get(__package__).preferences
+
+        if event.ctrl:
+            delta = 8 if event_type == "WHEELUPMOUSE" else -8
+            if prefs.settings.display_type == "THUMBNAILS":
+                prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
+            else:
+                prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
+            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+            return {"RUNNING_MODAL"}
+
         should_scroll = event.shift != (prefs.settings.wheel_mode == "SCROLL")
 
         if sb := _get_scrollbar_layout(layout):
@@ -1345,15 +1358,6 @@ class CAMGRID_OT_interactive_grid(Operator):
                 )
                 if GridState.current_start_row != old_row:
                     redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
-            return {"RUNNING_MODAL"}
-
-        if event.ctrl:
-            delta = 8 if event_type == "WHEELUPMOUSE" else -8
-            if prefs.settings.display_type == "THUMBNAILS":
-                prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
-            else:
-                prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
-            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
             return {"RUNNING_MODAL"}
 
         delta = 1 if event_type == "WHEELUPMOUSE" else -1

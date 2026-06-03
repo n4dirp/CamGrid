@@ -20,7 +20,7 @@ class CAMGRID_PT_grid_popup(Panel):
         layout.separator()
 
         col = layout.column()
-        col.label(text="Alignment")
+        col.label(text="Grid Alignment")
         col.row().prop(prefs.settings, "alignment", expand=True)
 
         col = layout.column()
@@ -44,18 +44,20 @@ class CAMGRID_PT_grid_popup(Panel):
         col.prop(prefs.settings, "show_info_text", text="Show Info Text")
 
         if prefs.settings.display_type == "THUMBNAILS":
+            col.prop(prefs.settings, "preview_show_names", text="Show Camera Name")
             col.prop(prefs.settings, "preview_disable_overlays", text="Disable Overlays")
-            col.prop(prefs.settings, "preview_show_names", text="Show Names")
 
         layout.separator()
-        col = layout.column()
-        col.label(text="Grid Interaction")
-        col.prop(prefs.settings, "cycle_cameras", text="Cycle at End/Start")
 
-        col.label(text="On Switch")
-        col.prop(prefs.settings, "on_switch_action", expand=True)
+        col = layout.column()
         col.label(text="Mouse Wheel")
         col.row().prop(prefs.settings, "wheel_mode", text="Mouse Wheel", expand=True)
+
+        col = layout.column()
+        col.label(text="On Switch")
+        col.prop(prefs.settings, "on_switch_action", expand=True)
+
+        layout.prop(prefs.settings, "cycle_cameras", text="Loop Through Cameras")
 
         layout.separator()
         layout.label(text="Source Collection")
