@@ -158,16 +158,16 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_cache_size: IntProperty(
         name="Preview Cache Size",
         description="Maximum number of camera preview thumbnails kept in GPU memory",
-        default=200,
-        min=10,
-        max=1000,
+        default=256,
+        min=16,
+        max=1024,
     )
     preview_precache_rows: IntProperty(
         name="Precache Rows",
         description="Number of extra rows above and below the visible area to pre-render",
         default=4,
         min=0,
-        max=10,
+        max=16,
     )
     preview_renders_per_tick: IntProperty(
         name="Renders Per Tick",
@@ -195,12 +195,12 @@ class CAMGRID_PG_settings(PropertyGroup):
             ("CAMERA_VIEW", "View Camera", "Switch to camera view", "OUTLINER_OB_CAMERA", 1),
             ("FRAME", "Frame Camera", "Switch to camera view and fit it to the viewport", "MOD_LENGTH", 2),
         ],
-        default="NONE",
+        default="FRAME",
     )
     cycle_cameras: BoolProperty(
         name="Cycle Cameras",
         description="Wrap around when reaching the start or end of the camera list",
-        default=False,
+        default=True,
     )
     wheel_mode: EnumProperty(
         name="Wheel Mode",
@@ -210,6 +210,30 @@ class CAMGRID_PG_settings(PropertyGroup):
             ("SCROLL", "Scroll Rows", "Wheel scrolls visible rows; Shift switches between cameras"),
         ],
         default="CAMERA",
+    )
+    frame_horizontal_padding: IntProperty(
+        name="Frame Horizontal Padding",
+        description="Horizontal padding (pixels) when framing the camera in the viewport",
+        default=4,
+        min=0,
+        soft_max=50,
+        subtype="PIXEL",
+    )
+    frame_top_padding: IntProperty(
+        name="Frame Top Padding",
+        description="Top padding (pixels) when framing the camera in the viewport",
+        default=32,
+        min=0,
+        soft_max=200,
+        subtype="PIXEL",
+    )
+    frame_bottom_padding: IntProperty(
+        name="Frame Bottom Padding",
+        description="Bottom padding (pixels) reserved for the grid when framing the camera",
+        default=24,
+        min=0,
+        soft_max=50,
+        subtype="PIXEL",
     )
 
 
@@ -250,12 +274,18 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        layout.label(text="Preview Mode")
-        box = layout.box()
-        col = box.column(align=True)
+        layout.label(text="Thumbnails Performance")
+        col = layout.column(align=True)
         col.prop(self.settings, "preview_cache_size", text="Cache Size")
         col.prop(self.settings, "preview_precache_rows", text="Pre-cache Rows")
         col.prop(self.settings, "preview_renders_per_tick", text="Renders per Tick")
+
+        layout.separator()
+        layout.label(text="Frame Camera Padding")
+        col = layout.column(align=True)
+        col.prop(self.settings, "frame_top_padding", text="Top")
+        col.prop(self.settings, "frame_bottom_padding", text="Bottom")
+        col.prop(self.settings, "frame_horizontal_padding", text="Horizontal")
 
         layout.separator()
         layout.label(text="Development")

@@ -34,16 +34,18 @@ logger = logging.getLogger(__package__)
 #    Constants
 # ------------------------------------------------------------------------
 
-TILE_WIDTH = 120
+# TILE_WIDTH = 48
 TILE_HEIGHT = 24
 TILE_GAP = 5
 BOTTOM_MARGIN = round(TILE_HEIGHT + TILE_GAP * 1.25)
 HORIZONTAL_PADDING = BOTTOM_MARGIN * 3
 ROUNDING = 2.0
 
+GRID_TOP_SAFE_ZONE = 140
+
 SCROLLBAR_WIDTH = 3
 SCROLLBAR_PADDING = TILE_GAP
-SCROLLBAR_MIN_THUMB = round(TILE_HEIGHT / 2)
+SCROLLBAR_MIN_THUMB = TILE_HEIGHT / 2
 
 FONT_SIZE = 11
 FONT_ID = 0
@@ -367,6 +369,16 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     bottom_margin = BOTTOM_MARGIN * scale + shelf_height + bottom_header_height
     if not prefs.settings.show_info_text:
         bottom_margin -= INFO_TEXT_OFFSET_Y * scale
+
+    min_region_height = bottom_margin + GRID_TOP_SAFE_ZONE + th + gap
+    min_region_width = left_overlap + right_overlap + HORIZONTAL_PADDING * scale + tw
+    if region.height < min_region_height or region.width < min_region_width:
+        return None
+
+    max_avail_height = float(region.height) - GRID_TOP_SAFE_ZONE - bottom_margin
+    max_fit_rows = max(1, int((max_avail_height + gap) / (th + gap)))
+    effective_max_rows = min(effective_max_rows, max_fit_rows)
+
     side_padding = (HORIZONTAL_PADDING * scale) / 2.0
     left_bound = left_overlap + side_padding
     right_bound = region.width - right_overlap - side_padding
@@ -1012,15 +1024,30 @@ def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShade
 def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
     font_id = FONT_ID
     n = len(layout.cameras)
+
+    parts = []
+    if active_cam := layout.active_camera:
+        data = active_cam.data
+        lens = getattr(data, "lens", None)
+        if lens and lens > 0:
+            parts.append(f"{active_cam.name} ({int(lens)}mm)")
+        elif ortho_scale := getattr(data, "ortho_scale", None):
+            parts.append(f"{active_cam.name} ({ortho_scale:.2f})")
+        else:
+            parts.append(active_cam.name)
+
     info_text = f"{n} Camera{'s' if n != 1 else ''}"
+
+    if parts:
+        info_text = f"{parts[0]} | {info_text}"
 
     if layout.total_rows > layout.effective_max_rows:
         info_text += f" ({layout.start_index + 1}-{layout.end_index})"
 
     if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
-        info_text = f"{sel_count} Selected | {info_text}"
+        info_text = f"{info_text} | {sel_count} Selected"
     if ThumbnailManager.render_timer_active:
-        info_text = f"Loading... | {info_text}"
+        info_text = f"{info_text} | Loading..."
 
     iw, _ = blf.dimensions(font_id, info_text)
     if layout.grid_alignment == "LEFT":
@@ -1450,6 +1477,8 @@ class CAMGRID_OT_frame_camera(Operator):
         if not region or region.height <= 0 or region.width <= 0:
             return {"CANCELLED"}
 
+        prefs = context.preferences.addons.get(__package__).preferences
+
         rv3d = context.space_data.region_3d
         if rv3d.view_perspective != "CAMERA":
             try:
@@ -1460,16 +1489,24 @@ class CAMGRID_OT_frame_camera(Operator):
         layout = _compute_grid_layout(context, area=context.area, region=region) if is_grid_active(context) else None
         scale = layout.scale if layout else _get_ui_scale()
         grid_top = (
-            (layout.origin_y + layout.visible_rows * (layout.th + layout.gap) + 15 * scale) if layout else 30.0 * scale
+            (
+                layout.origin_y
+                + layout.visible_rows * (layout.th + layout.gap)
+                + prefs.settings.frame_bottom_padding * scale
+            )
+            if layout
+            else prefs.settings.frame_top_padding * scale
         )
 
-        top_margin = 30.0 * scale
+        top_margin = prefs.settings.frame_top_padding * scale
         grid_frac = min(0.6, grid_top / float(region.height))
         if grid_frac <= 0:
             return {"CANCELLED"}
 
         left_overlap, right_overlap = _get_left_right_overlap(context.area)
-        avail_w = max(1.0, float(region.width) - left_overlap - right_overlap - HORIZONTAL_PADDING * scale)
+        avail_w = max(
+            1.0, float(region.width) - left_overlap - right_overlap - prefs.settings.frame_horizontal_padding * scale
+        )
         avail_vh = max(1.0, (1.0 - grid_frac) * float(region.height) - top_margin)
 
         try:
