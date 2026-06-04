@@ -34,6 +34,8 @@ logger = logging.getLogger(__package__)
 #    Constants
 # ------------------------------------------------------------------------
 
+DOT_WIDTH = 14
+DOT_HEIGHT = 14
 # TILE_WIDTH = 48
 TILE_HEIGHT = 24
 TILE_GAP = 5
@@ -45,7 +47,7 @@ GRID_TOP_SAFE_ZONE = 140
 
 SCROLLBAR_WIDTH = 3
 SCROLLBAR_PADDING = TILE_GAP
-SCROLLBAR_MIN_THUMB = TILE_HEIGHT / 2
+SCROLLBAR_MIN_THUMB = 4
 
 FONT_SIZE = 11
 FONT_ID = 0
@@ -297,6 +299,17 @@ def _draw_text_with_shadow(
 # ------------------------------------------------------------------------
 
 
+def _is_redo_panel_visible(context: Context) -> bool:
+    """Return True if the Adjust Last Operation panel is currently visible."""
+    area = getattr(context, "area", None)
+    if not area:
+        return False
+    for region in area.regions:
+        if region.type == "HUD" and region.width > 1 and region.height > 1 and region.x > 0 and region.y > 0:
+            return True
+    return False
+
+
 def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -> GridLayout | None:
     scene = scene or getattr(context, "scene", None)
     if not scene:
@@ -359,6 +372,10 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         )
         tw, th = preview_w * scale, preview_h * scale
         effective_max_rows = prefs.settings.preview_max_rows
+    elif prefs.settings.display_type == "DOTS":
+        tw = DOT_WIDTH * scale
+        th = DOT_HEIGHT * scale
+        effective_max_rows = prefs.settings.dots_max_rows
     else:
         tw = prefs.settings.tile_size * scale
         th = TILE_HEIGHT * scale
@@ -381,6 +398,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
 
     side_padding = (HORIZONTAL_PADDING * scale) / 2.0
     left_bound = left_overlap + side_padding
+    if _is_redo_panel_visible(context):
+        left_bound = max(left_bound, left_overlap + 300 * scale)
     right_bound = region.width - right_overlap - side_padding
 
     if prefs.settings.alignment == "CENTER":
@@ -394,6 +413,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     max_cols_pref = (
         prefs.settings.preview_max_columns
         if prefs.settings.display_type == "THUMBNAILS"
+        else prefs.settings.dots_max_columns
+        if prefs.settings.display_type == "DOTS"
         else prefs.settings.max_columns
     )
     max_cols = min(max_cols, max_cols_pref)
@@ -924,6 +945,7 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
             shader.bind()
             gpu.state.blend_set("ALPHA")
             shader.uniform_float("color", _rgba(color_contrast(colors["text"], 0.85), 0.05))
+
             batch_for_shader(
                 shader,
                 "LINE_STRIP",
@@ -965,42 +987,45 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                     gpu.state.line_width_set(1.0)
 
         # Text
-        text = cam.name
-        max_t_w = layout.tw - (12 if prefs.settings.display_type == "THUMBNAILS" else 8) * layout.scale
-        if blf.dimensions(font_id, text)[0] > max_t_w:
-            max_w_no_ell = max_t_w - blf.dimensions(font_id, "...")[0]
-            left, right = len(text) // 2, len(text) // 2 + 1
-            while (
-                left > 0 and right < len(text) and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
-            ):
-                left -= 1
-                right += 1
-            text = text[:left] + "..." + text[right:]
+        if prefs.settings.display_type != "DOTS":
+            text = cam.name
+            max_t_w = layout.tw - (12 if prefs.settings.display_type == "THUMBNAILS" else 8) * layout.scale
+            if blf.dimensions(font_id, text)[0] > max_t_w:
+                max_w_no_ell = max_t_w - blf.dimensions(font_id, "...")[0]
+                left, right = len(text) // 2, len(text) // 2 + 1
+                while (
+                    left > 0
+                    and right < len(text)
+                    and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
+                ):
+                    left -= 1
+                    right += 1
+                text = text[:left] + "..." + text[right:]
 
-        tw, th = blf.dimensions(font_id, text)
+            tw, th = blf.dimensions(font_id, text)
 
-        text_color = colors["border_active" if selected else "text"]
-        if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
-            blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE)))
-            btw, bth = blf.dimensions(BADGE_FONT_ID, text)
-            pad = 4 * layout.scale
-            bw, bh = btw + pad * 2, bth + pad * 2
-            bx, by = x + round((layout.tw - bw) / 2), y + pad
+            text_color = colors["border_active" if selected else "text"]
+            if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
+                blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE)))
+                btw, bth = blf.dimensions(BADGE_FONT_ID, text)
+                pad = 4 * layout.scale
+                bw, bh = btw + pad * 2, bth + pad * 2
+                bx, by = x + round((layout.tw - bw) / 2), y + pad
 
-            bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
-            bg_perim = get_rounded_rect_perimeter(bx, by, bw, bh, pad)
-            gpu.state.blend_set("ALPHA")
-            shader.bind()
-            shader.uniform_float("color", _rgba(bg_col[:3], 0.6))
-            batch_for_shader(shader, "TRI_FAN", {"pos": [(bx + bw / 2, by + bh / 2)] + bg_perim + [bg_perim[0]]}).draw(
-                shader
-            )
-            gpu.state.blend_set("NONE")
-            _draw_text_with_shadow(BADGE_FONT_ID, text, bx + pad, by + pad, text_color, layout.scale)
-        elif prefs.settings.display_type != "THUMBNAILS":
-            _draw_text_with_shadow(
-                font_id, text, x + (layout.tw - tw) / 2, y + (layout.th - th) / 2, text_color, layout.scale
-            )
+                bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
+                bg_perim = get_rounded_rect_perimeter(bx, by, bw, bh, pad)
+                gpu.state.blend_set("ALPHA")
+                shader.bind()
+                shader.uniform_float("color", _rgba(bg_col[:3], 0.6))
+                batch_for_shader(
+                    shader, "TRI_FAN", {"pos": [(bx + bw / 2, by + bh / 2)] + bg_perim + [bg_perim[0]]}
+                ).draw(shader)
+                gpu.state.blend_set("NONE")
+                _draw_text_with_shadow(BADGE_FONT_ID, text, bx + pad, by + pad, text_color, layout.scale)
+            elif prefs.settings.display_type != "THUMBNAILS":
+                _draw_text_with_shadow(
+                    font_id, text, x + (layout.tw - tw) / 2, y + (layout.th - th) / 2, text_color, layout.scale
+                )
 
 
 def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
@@ -1032,7 +1057,7 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
         if lens and lens > 0:
             parts.append(f"{active_cam.name} ({int(lens)}mm)")
         elif ortho_scale := getattr(data, "ortho_scale", None):
-            parts.append(f"{active_cam.name} ({ortho_scale:.2f})")
+            parts.append(f"{active_cam.name} 1({ortho_scale:.2f})")
         else:
             parts.append(active_cam.name)
 
@@ -1109,8 +1134,8 @@ def _is_grid_key_event(context: Context, event: Event) -> bool:
     return layout is not None and _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y)
 
 
-def toggle_grid():
-    curr_area_ptr = bpy.context.area.as_pointer()
+def toggle_grid(context: Context):
+    curr_area_ptr = context.area.as_pointer()
 
     if GridState.handler is not None:
         try:
@@ -1130,7 +1155,7 @@ def toggle_grid():
     ThumbnailManager.invalidate()
     GridState.reset()
     GridState.target_area_pointer = curr_area_ptr
-    GridState.target_region_pointer = bpy.context.region.as_pointer()
+    GridState.target_region_pointer = context.region.as_pointer()
     GridState.handler = bpy.types.SpaceView3D.draw_handler_add(_draw_grid, (), "WINDOW", "POST_PIXEL")
     bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
     redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
@@ -1152,7 +1177,7 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_options = {"INTERNAL"}
 
     def execute(self, context):
-        toggle_grid()
+        toggle_grid(context)
         return {"FINISHED"}
 
 
@@ -1176,7 +1201,7 @@ class CAMGRID_OT_interactive_grid(Operator):
         match event_type:
             case "ESC" if event.value == "PRESS":
                 if is_grid_active(context):
-                    toggle_grid()
+                    toggle_grid(context)
                 return {"CANCELLED"}
 
             case "MOUSEMOVE":
@@ -1373,6 +1398,8 @@ class CAMGRID_OT_interactive_grid(Operator):
             delta = 8 if event_type == "WHEELUPMOUSE" else -8
             if prefs.settings.display_type == "THUMBNAILS":
                 prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
+            elif prefs.settings.display_type == "DOTS":
+                return {"RUNNING_MODAL"}
             else:
                 prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
             redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)

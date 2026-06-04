@@ -83,8 +83,9 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Display Type",
         description="Camera grid tile display mode",
         items=[
-            ("TILES", "Tiles", "Show simple colored tiles", "SHORTDISPLAY", 0),
-            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 1),
+            ("DOTS", "Dots", "Show minimal dots without labels", "SHORTDISPLAY", 0),
+            ("TILES", "Tiles", "Show simple colored tiles", "LONGDISPLAY", 1),
+            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 2),
         ],
         default="TILES",
         update=_update_display_type,
@@ -109,7 +110,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     max_columns: IntProperty(
         name="Max Columns",
         description="Maximum number of columns in the camera grid overlay",
-        default=10,
+        default=8,
         min=1,
         soft_max=50,
     )
@@ -132,7 +133,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_max_columns: IntProperty(
         name="Preview Max Columns",
         description="Maximum number of columns in preview mode",
-        default=10,
+        default=8,
         min=1,
         soft_max=20,
     )
@@ -177,6 +178,20 @@ class CAMGRID_PG_settings(PropertyGroup):
         soft_max=20,
         max=100,
     )
+    dots_max_rows: IntProperty(
+        name="Dots Max Rows",
+        description="Maximum number of visible rows in dots mode",
+        default=4,
+        min=1,
+        soft_max=50,
+    )
+    dots_max_columns: IntProperty(
+        name="Dots Max Columns",
+        description="Maximum number of columns in dots mode",
+        default=16,
+        min=1,
+        soft_max=50,
+    )
     show_hidden: BoolProperty(
         name="Show Hidden",
         description="Include cameras that are hidden in the viewport in the grid",
@@ -200,7 +215,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     cycle_cameras: BoolProperty(
         name="Cycle Cameras",
         description="Wrap around when reaching the start or end of the camera list",
-        default=True,
+        default=False,
     )
     wheel_mode: EnumProperty(
         name="Wheel Mode",
@@ -230,7 +245,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_bottom_padding: IntProperty(
         name="Frame Bottom Padding",
         description="Bottom padding (pixels) reserved for the grid when framing the camera",
-        default=24,
+        default=2,
         min=0,
         soft_max=50,
         subtype="PIXEL",

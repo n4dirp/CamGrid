@@ -35,6 +35,9 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "preview_size", text="Size")
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
             sub.prop(prefs.settings, "preview_max_columns", text="Max Columns")
+        elif prefs.settings.display_type == "DOTS":
+            sub.prop(prefs.settings, "dots_max_rows", text="Max Rows")
+            sub.prop(prefs.settings, "dots_max_columns", text="Max Columns")
         else:
             sub.prop(prefs.settings, "tile_size", text="Size")
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
