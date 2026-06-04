@@ -4,6 +4,7 @@ version = "1.0.0"
 name = "Camera Grid"
 tagline = "Viewport camera grid overlay for quick camera switching"
 maintainer = "Nadir Perazzo"
+website = "https://github.com/n4dirp/CamGrid"
 type = "add-on"
 tags = ["Camera", "User Interface"]
 blender_version_min = "5.1.0"
