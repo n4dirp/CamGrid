@@ -34,8 +34,8 @@ logger = logging.getLogger(__package__)
 #    Constants
 # ------------------------------------------------------------------------
 
-DOT_WIDTH = 14
-DOT_HEIGHT = 14
+DOT_WIDTH = 16
+DOT_HEIGHT = 8
 # TILE_WIDTH = 48
 TILE_HEIGHT = 24
 TILE_GAP = 5
@@ -292,6 +292,29 @@ def _draw_text_with_shadow(
     blf.color(font_id, *color)
     blf.draw(font_id, text)
     blf.disable(font_id, blf.SHADOW)
+
+
+# ------------------------------------------------------------------------
+#    GPU Drawing Helpers
+# ------------------------------------------------------------------------
+
+
+def _draw_filled_rounded_rect(shader, x, y, w, h, r, color):
+    perimeter = get_rounded_rect_perimeter(x, y, w, h, r)
+    fill_coords = [(x + w / 2, y + h / 2)] + perimeter + [perimeter[0]]
+    batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
+    shader.bind()
+    shader.uniform_float("color", color)
+    batch.draw(shader)
+
+
+def _draw_rounded_rect_border(shader, x, y, w, h, r, color, line_width=1.0):
+    perimeter = get_rounded_rect_perimeter(x, y, w, h, r)
+    gpu.state.line_width_set(line_width)
+    shader.bind()
+    shader.uniform_float("color", color)
+    batch_for_shader(shader, "LINE_STRIP", {"pos": perimeter + [perimeter[0]]}).draw(shader)
+    gpu.state.line_width_set(1.0)
 
 
 # ------------------------------------------------------------------------
@@ -839,15 +862,9 @@ def _draw_background_panel(layout: GridLayout, colors: dict, shader: gpu.types.G
         else:
             g_right = sb.track_left + SCROLLBAR_WIDTH * layout.scale + bg_margin
 
-    perimeter = get_rounded_rect_perimeter(g_left, g_bottom, g_right - g_left, g_top - g_bottom, layout.radius * 2)
-    fill_coords = [(g_left + (g_right - g_left) / 2, g_bottom + (g_top - g_bottom) / 2)] + perimeter + [perimeter[0]]
-
-    batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
-    shader.bind()
     bg_color = _rgba(color_contrast(colors["tile_default"], 0.5 if GridState.mouse_in_grid else 0.3), 0.85)
-    shader.uniform_float("color", bg_color)
     gpu.state.blend_set("ALPHA")
-    batch.draw(shader)
+    _draw_filled_rounded_rect(shader, g_left, g_bottom, g_right - g_left, g_top - g_bottom, layout.radius * 2, bg_color)
     gpu.state.blend_set("NONE")
 
 
@@ -867,9 +884,6 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
         is_active = cam == layout.active_camera
         is_hovered = i == GridState.hovered_tile
 
-        perimeter = get_rounded_rect_perimeter(x, y, layout.tw, layout.th, layout.radius)
-        fill_coords = [(x + layout.tw / 2, y + layout.th / 2)] + perimeter + [perimeter[0]]
-
         if prefs.settings.display_type == "THUMBNAILS":
             cached = ThumbnailManager.cache.get(cam.name)
             is_valid, is_stale = False, False
@@ -888,43 +902,34 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 gpu.state.blend_set("ALPHA")
                 draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
 
-                # Single Rectangle Overlay (Dimmed, Active, or Hovered)
                 if is_active and not is_hovered:
-                    overlay_col = _rgba(colors["tile_picked"][:3], 0.25)
+                    overlay_col = _rgba(colors["tile_picked"], 0.25)
                 elif is_active and is_hovered:
                     overlay_col = _rgba(color_contrast(colors["tile_picked"], 1.3), 0.25)
                 elif is_hovered:
-                    overlay_col = _rgba(colors["text"][:3], 0.1)
+                    overlay_col = _rgba(colors["text"], 0.1)
                 else:
-                    overlay_col = _rgba(colors["tile_default"][:3], 0.15)  # Standard dim
+                    overlay_col = _rgba(colors["tile_default"], 0.15)
 
-                batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
-                shader.bind()
-                shader.uniform_float("color", overlay_col)
-                batch.draw(shader)
-
+                _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, overlay_col)
                 gpu.state.blend_set("NONE")
                 gpu.state.depth_mask_set(True)
             else:
                 if is_stale:
                     ThumbnailManager.stale.add(cam.name)
                 base_col = colors["tile_hover"] if is_hovered else colors["tile_default"]
-                batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
-                shader.bind()
-                shader.uniform_float("color", base_col)
                 gpu.state.blend_set("ALPHA")
-                batch.draw(shader)
+                _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, base_col)
                 if is_stale:
                     if is_hovered:
-                        overlay_col = _rgba(colors["text"][:3], 0.1)
+                        overlay_col = _rgba(colors["text"], 0.1)
                     else:
-                        overlay_col = _rgba(colors["tile_default"][:3], 0.6)
+                        overlay_col = _rgba(colors["tile_default"], 0.6)
                     draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
-                    shader.uniform_float("color", overlay_col)
-                    batch.draw(shader)
+                    _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, overlay_col)
                 gpu.state.blend_set("NONE")
+
         else:
-            # Simple colored tiles mode
             if is_active and not is_hovered:
                 base_col = colors["tile_picked"]
             elif is_active and is_hovered:
@@ -934,59 +939,49 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
             else:
                 base_col = colors["tile_default"]
 
-            batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
-            shader.bind()
-            shader.uniform_float("color", base_col)
-            batch.draw(shader)
+            _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, base_col)
 
-        # Borders
         if prefs.settings.display_type == "THUMBNAILS":
-            gpu.state.line_width_set(2.0 * layout.scale)
-            shader.bind()
             gpu.state.blend_set("ALPHA")
-            shader.uniform_float("color", _rgba(color_contrast(colors["text"], 0.85), 0.05))
-
-            batch_for_shader(
+            _draw_rounded_rect_border(
                 shader,
-                "LINE_STRIP",
-                {
-                    "pos": [
-                        (x + layout.tw, y),
-                        (x, y),
-                        (x, y + layout.th),
-                        (x + layout.tw, y + layout.th),
-                        (x + layout.tw, y),
-                    ]
-                },
-            ).draw(shader)
-            gpu.state.line_width_set(1.0)
+                x,
+                y,
+                layout.tw,
+                layout.th,
+                layout.radius,
+                _rgba(color_contrast(colors["text"], 0.85), 0.05),
+                line_width=2.0 * layout.scale,
+            )
             gpu.state.blend_set("NONE")
 
         if selected or (prefs.settings.display_type == "THUMBNAILS" and is_active):
             border_col = colors["border_active"] if selected else colors["tile_picked"]
-            gpu.state.line_width_set((2.0 if selected else 1.5) * layout.scale)
-            shader.bind()
-            shader.uniform_float("color", border_col)
-            batch_for_shader(shader, "LINE_STRIP", {"pos": perimeter + [perimeter[0]]}).draw(shader)
-            gpu.state.line_width_set(1.0)
+            _draw_rounded_rect_border(
+                shader,
+                x,
+                y,
+                layout.tw,
+                layout.th,
+                layout.radius,
+                border_col,
+                line_width=(2.0 if selected else 1.5) * layout.scale,
+            )
 
             if selected and is_active:
                 inset = 2.0 * layout.scale
                 if layout.tw - 2 * inset > 0 and layout.th - 2 * inset > 0:
-                    inner_perim = get_rounded_rect_perimeter(
+                    _draw_rounded_rect_border(
+                        shader,
                         x + inset,
                         y + inset,
                         layout.tw - 2 * inset,
                         layout.th - 2 * inset,
                         max(0.0, layout.radius - inset),
+                        colors["tile_picked"],
+                        line_width=1.5 * layout.scale,
                     )
-                    gpu.state.line_width_set(1.5 * layout.scale)
-                    shader.bind()
-                    shader.uniform_float("color", colors["tile_picked"])
-                    batch_for_shader(shader, "LINE_STRIP", {"pos": inner_perim + [inner_perim[0]]}).draw(shader)
-                    gpu.state.line_width_set(1.0)
 
-        # Text
         if prefs.settings.display_type != "DOTS":
             text = cam.name
             max_t_w = layout.tw - (12 if prefs.settings.display_type == "THUMBNAILS" else 8) * layout.scale
@@ -1003,8 +998,8 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 text = text[:left] + "..." + text[right:]
 
             tw, th = blf.dimensions(font_id, text)
-
             text_color = colors["border_active" if selected else "text"]
+
             if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
                 blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE)))
                 btw, bth = blf.dimensions(BADGE_FONT_ID, text)
@@ -1013,16 +1008,12 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 bx, by = x + round((layout.tw - bw) / 2), y + pad
 
                 bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
-                bg_perim = get_rounded_rect_perimeter(bx, by, bw, bh, pad)
                 gpu.state.blend_set("ALPHA")
-                shader.bind()
-                shader.uniform_float("color", _rgba(bg_col[:3], 0.6))
-                batch_for_shader(
-                    shader, "TRI_FAN", {"pos": [(bx + bw / 2, by + bh / 2)] + bg_perim + [bg_perim[0]]}
-                ).draw(shader)
+                _draw_filled_rounded_rect(shader, bx, by, bw, bh, pad, _rgba(bg_col[:3], 0.6))
                 gpu.state.blend_set("NONE")
                 _draw_text_with_shadow(BADGE_FONT_ID, text, bx + pad, by + pad, text_color, layout.scale)
-            elif prefs.settings.display_type != "THUMBNAILS":
+
+            elif prefs.settings.display_type == "TILES":
                 _draw_text_with_shadow(
                     font_id, text, x + (layout.tw - tw) / 2, y + (layout.th - th) / 2, text_color, layout.scale
                 )

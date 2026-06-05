@@ -229,7 +229,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_horizontal_padding: IntProperty(
         name="Frame Horizontal Padding",
         description="Horizontal padding (pixels) when framing the camera in the viewport",
-        default=4,
+        default=0,
         min=0,
         soft_max=50,
         subtype="PIXEL",
