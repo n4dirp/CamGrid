@@ -43,12 +43,16 @@ class CAMGRID_PT_grid_popup(Panel):
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
-        col = layout.column()
-        col.prop(prefs.settings, "show_info_text", text="Show Info Text")
-
         if prefs.settings.display_type == "THUMBNAILS":
-            col.prop(prefs.settings, "preview_show_names", text="Show Camera Name")
-            col.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
+            row = layout.row(align=True)
+            row.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
+            row.prop(prefs.settings, "preview_show_names", text="Show Names")
+
+        col = layout.column(align=True)
+        col.label(text="Info Text")
+        col.prop(prefs.settings, "show_active_camera_name", text="Camera Name")
+        col.prop(prefs.settings, "show_camera_settings", text="Lens Settings")
+        col.prop(prefs.settings, "show_camera_count", text="Camera Count")
 
         layout.separator()
 

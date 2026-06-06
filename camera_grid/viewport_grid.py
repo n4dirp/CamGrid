@@ -19,7 +19,6 @@ from .helpers import (
     _get_asset_shelf_height,
     _get_bottom_header_height,
     _get_left_right_overlap,
-    _get_safe_event_type,
     _get_ui_scale,
     _optimize_grid_columns,
     _rgba,
@@ -39,20 +38,22 @@ DOT_HEIGHT = 8
 # TILE_WIDTH = 48
 TILE_HEIGHT = 24
 TILE_GAP = 5
-BOTTOM_MARGIN = round(TILE_HEIGHT + TILE_GAP * 1.25)
+BOTTOM_MARGIN = round(TILE_HEIGHT + TILE_GAP * 2) - 1
 HORIZONTAL_PADDING = BOTTOM_MARGIN * 3
 ROUNDING = 2.0
+SHADOW_OFFSET = 1
 
 GRID_TOP_SAFE_ZONE = 140
 
-SCROLLBAR_WIDTH = 3
+SCROLLBAR_WIDTH = 4
+SCROLLBAR_WIDTH_HOVER = 6
 SCROLLBAR_PADDING = TILE_GAP
 SCROLLBAR_MIN_THUMB = 4
 
 FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
-INFO_TEXT_OFFSET_Y = (BOTTOM_MARGIN - TILE_HEIGHT + TILE_GAP) * 2
+INFO_TEXT_OFFSET_Y = 24
 
 
 class _DragState(Enum):
@@ -130,6 +131,7 @@ class GridState:
     last_active_index: int = -1
     mouse_in_grid: bool = False
     hovered_tile: int | None = None
+    scrollbar_hovered: bool = False
 
     drag_state: _DragState = _DragState.IDLE
     drag_tile: int = -1
@@ -146,6 +148,7 @@ class GridState:
         cls.current_start_row = -1
         cls.last_active_index = -1
         cls.mouse_in_grid = False
+        cls.scrollbar_hovered = False
         cls.drag_state = _DragState.IDLE
         cls.drag_tile = -1
         cls.drag_last_tile = -1
@@ -265,6 +268,7 @@ def _get_base_rounded_rect(w: float, h: float, r: float, segments: int = 6) -> t
 def get_rounded_rect_perimeter(
     x: float, y: float, w: float, h: float, r: float, segments: int = 6
 ) -> list[tuple[float, float]]:
+    segments = max(segments, int(r * 3))
     base_verts = _get_base_rounded_rect(w, h, r, segments)
     return [(x + vx, y + vy) for vx, vy in base_verts]
 
@@ -276,8 +280,9 @@ def _get_theme_colors() -> dict[str, tuple[float, float, float, float]]:
         "tile_hover": _rgba(_theme("view_3d.space.header", (0.35, 0.35, 0.35)), 0.95),
         "tile_picked": _rgba(_theme("user_interface.wcol_regular.inner_sel", (0.28, 0.45, 0.7)), 1.0),
         "border_active": _rgba(_theme("view_3d.object_active", (1.0, 0.63, 0.16)), 1.0),
-        "text": _rgba(text, 0.9),
-        "info_text": _rgba(text, 0.75),
+        "text": _rgba(text, 1.0),
+        "info_text": _rgba(text, 1.0),
+        "tile_text": _rgba(_theme("user_interface.wcol_regular.text_sel", (1.0, 1.0, 1.0)), 1.0),
     }
 
 
@@ -286,12 +291,20 @@ def _draw_text_with_shadow(
 ):
     outline = _compute_outline_color(color[:3])
     blf.enable(font_id, blf.SHADOW)
-    blf.shadow(font_id, 3, int(outline[0] * 255), int(outline[1] * 255), int(outline[2] * 255), int(outline[3] * 255))
-    blf.shadow_offset(font_id, int(scale), -int(scale))
+    blf.shadow(font_id, 3, int(outline[0] * 255), int(outline[1] * 255), int(outline[2] * 255), 255)
+    blf.shadow_offset(font_id, 0, -int(scale))
     blf.position(font_id, x, y, 0)
     blf.color(font_id, *color)
     blf.draw(font_id, text)
     blf.disable(font_id, blf.SHADOW)
+
+
+def _has_info_content(prefs) -> bool:
+    return (
+        prefs.settings.show_active_camera_name
+        or prefs.settings.show_camera_settings
+        or prefs.settings.show_camera_count
+    )
 
 
 # ------------------------------------------------------------------------
@@ -407,7 +420,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     gap = TILE_GAP * scale
     radius = ROUNDING * scale
     bottom_margin = BOTTOM_MARGIN * scale + shelf_height + bottom_header_height
-    if not prefs.settings.show_info_text:
+    if not _has_info_content(prefs):
         bottom_margin -= INFO_TEXT_OFFSET_Y * scale
 
     min_region_height = bottom_margin + GRID_TOP_SAFE_ZONE + th + gap
@@ -442,7 +455,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     )
     max_cols = min(max_cols, max_cols_pref)
 
-    columns = _optimize_grid_columns(total_cameras, max_cols, effective_max_rows)
+    columns = _optimize_grid_columns(total_cameras, max_cols, effective_max_rows, max_available_width, tw, gap)
     active_camera = scene.camera
     active_index = cameras.index(active_camera) if active_camera in cameras else 0
 
@@ -561,7 +574,7 @@ def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> boo
     grid_left = layout.origin_x - layout.gap
     grid_right = layout.origin_x + layout.grid_width + layout.gap
     prefs = bpy.context.preferences.addons.get(__package__).preferences
-    info_offset = layout.info_offset_y if prefs.settings.show_info_text else 0.0
+    info_offset = layout.info_offset_y if _has_info_content(prefs) else 0.0
     grid_bottom = layout.origin_y - info_offset - layout.gap
     grid_top = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
 
@@ -939,6 +952,18 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
             else:
                 base_col = colors["tile_default"]
 
+            shadow_offset = SHADOW_OFFSET * layout.scale
+            gpu.state.blend_set("ALPHA")
+            _draw_filled_rounded_rect(
+                shader,
+                x,
+                y - shadow_offset,
+                layout.tw,
+                layout.th,
+                layout.radius,
+                (0.0, 0.0, 0.0, 0.2),
+            )
+            gpu.state.blend_set("NONE")
             _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, base_col)
 
         if prefs.settings.display_type == "THUMBNAILS":
@@ -998,10 +1023,10 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                 text = text[:left] + "..." + text[right:]
 
             tw, th = blf.dimensions(font_id, text)
-            text_color = colors["border_active" if selected else "text"]
+            text_color = colors["border_active" if selected else "tile_text"]
 
             if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
-                blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE)))
+                blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE * layout.scale)))
                 btw, bth = blf.dimensions(BADGE_FONT_ID, text)
                 pad = 4 * layout.scale
                 bw, bh = btw + pad * 2, bth + pad * 2
@@ -1024,48 +1049,75 @@ def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShade
         return
     if sb := _get_scrollbar_layout(layout):
         sb_w = SCROLLBAR_WIDTH * layout.scale
-        tc = (
-            (sb.track_left, sb.thumb_y),
-            (sb.track_left + sb_w, sb.thumb_y),
-            (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
-            (sb.track_left, sb.thumb_y),
-            (sb.track_left + sb_w, sb.thumb_y + sb.thumb_h),
-            (sb.track_left, sb.thumb_y + sb.thumb_h),
+        is_hovered = GridState.scrollbar_hovered
+        if is_hovered:
+            sb_w_hover = SCROLLBAR_WIDTH_HOVER * layout.scale
+            bar_left = sb.track_left + (sb_w - sb_w_hover) / 2
+            bar_right = bar_left + sb_w_hover
+        else:
+            bar_left = sb.track_left
+            bar_right = bar_left + sb_w
+        gpu.state.blend_set("ALPHA")
+        contrast = 1.5 if is_hovered else 1.2
+        color = color_contrast(colors["tile_default"], contrast)
+        _draw_filled_rounded_rect(
+            shader,
+            bar_left,
+            round(sb.thumb_y),
+            round(bar_right - bar_left),
+            round(sb.thumb_h),
+            round((bar_right - bar_left) / 2),
+            color,
         )
-        shader.bind()
-        shader.uniform_float("color", color_contrast(colors["tile_default"], 1.4))
-        batch_for_shader(shader, "TRIS", {"pos": tc}).draw(shader)
+        gpu.state.blend_set("NONE")
 
 
 def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
     font_id = FONT_ID
-    n = len(layout.cameras)
-
+    blf.size(font_id, layout.font_size)
+    prefs = bpy.context.preferences.addons.get(__package__).preferences
     parts = []
+
     if active_cam := layout.active_camera:
         data = active_cam.data
-        lens = getattr(data, "lens", None)
-        if lens and lens > 0:
-            parts.append(f"{active_cam.name} ({int(lens)}mm)")
-        elif ortho_scale := getattr(data, "ortho_scale", None):
-            parts.append(f"{active_cam.name} 1({ortho_scale:.2f})")
-        else:
+        cam_type = getattr(data, "type", "PERSP")
+
+        if prefs.settings.show_active_camera_name:
             parts.append(active_cam.name)
 
-    info_text = f"{n} Camera{'s' if n != 1 else ''}"
+        if prefs.settings.show_camera_settings:
+            if cam_type == "PERSP":
+                lens = getattr(data, "lens", 0)
+                sensor = getattr(data, "sensor_width", 0)
+                if lens > 0:
+                    parts.append(f"Lens: {int(lens)} mm")
+                if sensor > 0:
+                    parts.append(f"Sensor: {sensor:.0f} mm")
+            elif cam_type == "ORTHO":
+                ortho_scale = getattr(data, "ortho_scale", None)
+                if ortho_scale:
+                    parts.append(f"Scale: {ortho_scale:.2f}")
 
-    if parts:
-        info_text = f"{parts[0]} | {info_text}"
-
-    if layout.total_rows > layout.effective_max_rows:
-        info_text += f" ({layout.start_index + 1}-{layout.end_index})"
+    if prefs.settings.show_camera_count:
+        n = len(layout.cameras)
+        count_str = f"{n} Camera{'s' if n != 1 else ''}"
+        if layout.total_rows > layout.effective_max_rows:
+            count_str += f" ({layout.start_index + 1}-{layout.end_index})"
+        parts.append(count_str)
 
     if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
-        info_text = f"{info_text} | {sel_count} Selected"
+        parts.append(f"{sel_count} Selected")
+
     if ThumbnailManager.render_timer_active:
-        info_text = f"{info_text} | Loading..."
+        parts.append("Loading...")
+
+    if not parts:
+        return
+
+    info_text = " | ".join(parts)
 
     iw, _ = blf.dimensions(font_id, info_text)
+    ih = layout.font_size
     if layout.grid_alignment == "LEFT":
         ix = layout.origin_x
     elif layout.grid_alignment == "RIGHT":
@@ -1073,9 +1125,17 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
     else:
         ix = layout.origin_x + (layout.grid_width - iw) / 2
 
-    _draw_text_with_shadow(
-        font_id, info_text, ix, layout.origin_y - layout.info_offset_y, colors["info_text"], layout.scale
+    pad = 6 * layout.scale
+    iy = layout.origin_y - layout.info_offset_y
+    bg_color = _rgba(_compute_outline_color(colors["info_text"]), 0.4)
+
+    gpu.state.blend_set("ALPHA")
+    _draw_filled_rounded_rect(
+        shader, round(ix - pad), round(iy - pad), round(iw + pad * 2), round(ih + pad * 1.5), layout.radius, bg_color
     )
+    gpu.state.blend_set("NONE")
+
+    _draw_text_with_shadow(font_id, info_text, ix, iy, colors["info_text"], layout.scale)
 
 
 def _draw_grid():
@@ -1098,13 +1158,22 @@ def _draw_grid():
     _draw_background_panel(layout, colors, shader)
     _draw_camera_tiles(layout, colors, shader, prefs, active_scene)
     _draw_scrollbar(layout, colors, shader)
-    if prefs.settings.show_info_text:
+    if _has_info_content(prefs):
         _draw_footer_info(layout, colors, shader)
 
 
 # ------------------------------------------------------------------------
 #    API & Operators
 # ------------------------------------------------------------------------
+
+
+def refresh_thumbnail_cache():
+    """Clear thumbnail cache and queue all cameras for re-render."""
+    ThumbnailManager.invalidate()
+    for cam in bpy.data.objects:
+        if cam.type == "CAMERA":
+            ThumbnailManager.queue_render(cam.name)
+    redraw_ui("VIEW_3D")
 
 
 def is_grid_active(context: Context | None = None) -> bool:
@@ -1157,7 +1226,7 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_label = "Camera Grid"
     bl_description = (
         "Toggle the camera grid overlay.\n\n"
-        "Camera grid controls (cursor over grid):\n"
+        "Shortcuts (Over-Grid):\n"
         "LMB / Wheel / Arrows - Switch camera.\n"
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
@@ -1187,7 +1256,7 @@ class CAMGRID_OT_interactive_grid(Operator):
         if not area or not region or area.as_pointer() != GridState.target_area_pointer or region.type != "WINDOW":
             return {"PASS_THROUGH"}
 
-        event_type = _get_safe_event_type(event)
+        event_type = event.type
 
         match event_type:
             case "ESC" if event.value == "PRESS":
@@ -1246,6 +1315,14 @@ class CAMGRID_OT_interactive_grid(Operator):
             in_grid = _is_mouse_in_grid(layout, event.mouse_region_x, event.mouse_region_y)
             hovered = _get_tile_at_mouse(layout, event.mouse_region_x, event.mouse_region_y)
 
+            mx, my = event.mouse_region_x, event.mouse_region_y
+            sb_hovered = False
+            if GridState.drag_state == _DragState.SCROLLBAR_DRAGGING:
+                sb_hovered = True
+            elif sb := _get_scrollbar_layout(layout):
+                if sb.hit_left <= mx <= sb.hit_right and sb.track_bottom <= my <= sb.track_top:
+                    sb_hovered = True
+
             needs_redraw = False
             if in_grid != GridState.mouse_in_grid:
                 GridState.mouse_in_grid = in_grid
@@ -1255,11 +1332,17 @@ class CAMGRID_OT_interactive_grid(Operator):
                 GridState.hovered_tile = hovered
                 needs_redraw = True
 
+            if sb_hovered != GridState.scrollbar_hovered:
+                GridState.scrollbar_hovered = sb_hovered
+                needs_redraw = True
+
             if needs_redraw:
                 redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
-        elif GridState.mouse_in_grid or GridState.hovered_tile is not None:
+        elif GridState.mouse_in_grid or GridState.hovered_tile is not None or GridState.scrollbar_hovered:
             GridState.mouse_in_grid = False
             GridState.hovered_tile = None
+            if GridState.drag_state != _DragState.SCROLLBAR_DRAGGING:
+                GridState.scrollbar_hovered = False
             redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
 
         if GridState.drag_state == _DragState.IDLE:
@@ -1355,7 +1438,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 context.scene.camera = cam
             _apply_on_switch_action(context)
 
-            # Auto-Reload Thumbnail - Disabled
+            # Auto-Reload Thumbnail (Temporarily Disabled)
             # if context.preferences.addons.get(__package__).preferences.settings.display_type == "THUMBNAILS":
             #     if cam.name in ThumbnailManager.stale:
             #         ThumbnailManager.stale.discard(cam.name)
@@ -1468,11 +1551,7 @@ class CAMGRID_OT_refresh_previews(Operator):
     bl_options = {"INTERNAL"}
 
     def execute(self, context):
-        ThumbnailManager.invalidate()
-        for cam in bpy.data.objects:
-            if cam.type == "CAMERA":
-                ThumbnailManager.queue_render(cam.name)
-        redraw_ui("VIEW_3D")
+        refresh_thumbnail_cache()
         return {"FINISHED"}
 
 
@@ -1513,7 +1592,7 @@ class CAMGRID_OT_frame_camera(Operator):
                 + prefs.settings.frame_bottom_padding * scale
             )
             if layout
-            else prefs.settings.frame_top_padding * scale
+            else prefs.settings.frame_bottom_padding * scale
         )
 
         top_margin = prefs.settings.frame_top_padding * scale

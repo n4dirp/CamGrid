@@ -8,7 +8,6 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty
 from bpy.types import AddonPreferences, PropertyGroup
 
 from . import viewport_grid
-from .helpers import redraw_ui
 
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
@@ -72,8 +71,10 @@ class AddonLogFormatter(logging.Formatter):
 
 
 def _update_display_type(self, context):
-    viewport_grid.ThumbnailManager.invalidate()
-    redraw_ui("VIEW_3D")
+    if self.display_type == "THUMBNAILS":
+        viewport_grid.refresh_thumbnail_cache()
+    else:
+        viewport_grid.ThumbnailManager.invalidate()
 
 
 class CAMGRID_PG_settings(PropertyGroup):
@@ -98,7 +99,7 @@ class CAMGRID_PG_settings(PropertyGroup):
             ("CENTER", "Center", "Center the grid horizontally"),
             ("RIGHT", "Right", "Align grid to the right side"),
         ],
-        default="RIGHT",
+        default="CENTER",
     )
     max_rows: IntProperty(
         name="Max Rows",
@@ -150,6 +151,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Disable Overlays",
         description="Temporarily disable viewport overlays while rendering preview thumbnails",
         default=True,
+        update=_update_display_type,
     )
     preview_show_names: BoolProperty(
         name="Show Names",
@@ -197,10 +199,20 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Include cameras that are hidden in the viewport in the grid",
         default=False,
     )
-    show_info_text: BoolProperty(
-        name="Show Info Text",
-        description="Show camera count and selection info below the grid",
+    show_camera_settings: BoolProperty(
+        name="Show Camera Settings",
+        description="Show camera lens, sensor width, and focal information in the info text",
         default=True,
+    )
+    show_active_camera_name: BoolProperty(
+        name="Show Active Camera Name",
+        description="Show the active camera name in the info text",
+        default=False,
+    )
+    show_camera_count: BoolProperty(
+        name="Show Camera Count",
+        description="Show the camera count in the info text",
+        default=False,
     )
     on_switch_action: EnumProperty(
         name="On Switch",
@@ -237,7 +249,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_top_padding: IntProperty(
         name="Frame Top Padding",
         description="Top padding (pixels) when framing the camera in the viewport",
-        default=32,
+        default=30,
         min=0,
         soft_max=200,
         subtype="PIXEL",
@@ -245,7 +257,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_bottom_padding: IntProperty(
         name="Frame Bottom Padding",
         description="Bottom padding (pixels) reserved for the grid when framing the camera",
-        default=2,
+        default=4,
         min=0,
         soft_max=50,
         subtype="PIXEL",
