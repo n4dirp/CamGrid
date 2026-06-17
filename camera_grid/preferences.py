@@ -85,7 +85,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Camera grid tile display mode",
         items=[
             ("DOTS", "Dots", "Show minimal dots without labels", "SHORTDISPLAY", 0),
-            ("TILES", "Tiles", "Show simple colored tiles", "LONGDISPLAY", 1),
+            ("TILES", "Labels", "Show simple colored tiles", "LONGDISPLAY", 1),
             ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 2),
         ],
         default="TILES",
@@ -168,7 +168,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_precache_rows: IntProperty(
         name="Precache Rows",
         description="Number of extra rows above and below the visible area to pre-render",
-        default=4,
+        default=5,
         min=0,
         max=16,
     )
@@ -193,6 +193,11 @@ class CAMGRID_PG_settings(PropertyGroup):
         default=16,
         min=1,
         soft_max=50,
+    )
+    filter_camera_collections: BoolProperty(
+        name="Filter Camera Collections",
+        description="Only show collections containing cameras in the source collection picker",
+        default=True,
     )
     show_hidden: BoolProperty(
         name="Show Hidden",
@@ -240,15 +245,15 @@ class CAMGRID_PG_settings(PropertyGroup):
     )
     frame_horizontal_padding: IntProperty(
         name="Frame Horizontal Padding",
-        description="Horizontal padding (pixels) when framing the camera in the viewport",
+        description="Horizontal padding when framing the camera in the viewport",
         default=0,
         min=0,
-        soft_max=50,
+        soft_max=100,
         subtype="PIXEL",
     )
     frame_top_padding: IntProperty(
         name="Frame Top Padding",
-        description="Top padding (pixels) when framing the camera in the viewport",
+        description="Top padding when framing the camera in the viewport",
         default=30,
         min=0,
         soft_max=200,
@@ -256,12 +261,30 @@ class CAMGRID_PG_settings(PropertyGroup):
     )
     frame_bottom_padding: IntProperty(
         name="Frame Bottom Padding",
-        description="Bottom padding (pixels) reserved for the grid when framing the camera",
+        description="Bottom padding reserved for the grid when framing the camera",
         default=4,
         min=0,
         soft_max=50,
         subtype="PIXEL",
     )
+    frame_grid_padding: BoolProperty(
+        name="Grid Padding",
+        description="Reserve camera grid height as bottom padding when framing the camera",
+        default=True,
+    )
+    close_on_esc: BoolProperty(
+        name="Close Grid with ESC",
+        description="Press ESC to close the camera grid overlay",
+        default=True,
+    )
+
+
+def _poll_collection_with_cameras(self, obj):
+    """Only show collections that contain at least one camera when filter is enabled."""
+    prefs = bpy.context.preferences.addons.get(__package__).preferences
+    if not prefs.settings.filter_camera_collections:
+        return True
+    return any(o.type == "CAMERA" for o in obj.all_objects)
 
 
 class CAMGRID_PG_scene(PropertyGroup):
@@ -270,6 +293,7 @@ class CAMGRID_PG_scene(PropertyGroup):
         description="Collection containing cameras to display in the grid.\n"
         "If empty, all cameras in the scene are shown",
         type=bpy.types.Collection,
+        poll=_poll_collection_with_cameras,
     )
 
 
@@ -301,20 +325,12 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        layout.label(text="Thumbnails Performance")
         col = layout.column(align=True)
+        col.label(text="Thumbnails")
         col.prop(self.settings, "preview_cache_size", text="Cache Size")
         col.prop(self.settings, "preview_precache_rows", text="Pre-cache Rows")
         col.prop(self.settings, "preview_renders_per_tick", text="Renders per Tick")
 
-        layout.separator()
-        layout.label(text="Frame Camera Padding")
-        col = layout.column(align=True)
-        col.prop(self.settings, "frame_top_padding", text="Top")
-        col.prop(self.settings, "frame_bottom_padding", text="Bottom")
-        col.prop(self.settings, "frame_horizontal_padding", text="Horizontal")
-
-        layout.separator()
         layout.label(text="Development")
         row = layout.row(align=True, heading="Console Logging")
         row.prop(self, "logging_enabled", text="")
