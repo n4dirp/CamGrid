@@ -5,17 +5,22 @@ import math
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from functools import lru_cache
 
 import blf
 import bpy
 import gpu
 from bpy.types import Context, Event, Operator, Region
-from gpu_extras.batch import batch_for_shader
 from gpu_extras.presets import draw_texture_2d
 
+from .gpu_draw import (
+    _draw_filled_rounded_rect,
+    _draw_pill,
+    _draw_pill_border,
+    _draw_rounded_rect_border,
+    _draw_text_with_shadow,
+    _get_theme_colors,
+)
 from .helpers import (
-    _compute_outline_color,
     _get_asset_shelf_height,
     _get_bottom_header_height,
     _get_left_right_overlap,
@@ -23,7 +28,7 @@ from .helpers import (
     _optimize_grid_columns,
     _rgba,
     _theme,
-    color_contrast,
+    # color_contrast,
     redraw_ui,
 )
 
@@ -33,14 +38,13 @@ logger = logging.getLogger(__package__)
 #    Constants
 # ------------------------------------------------------------------------
 
-DOT_WIDTH = 16
-DOT_HEIGHT = 8
+DOT_WIDTH = 18
+DOT_HEIGHT = 9
 # TILE_WIDTH = 48
 TILE_HEIGHT = 24
-TILE_GAP = 5
-BOTTOM_MARGIN = round(TILE_HEIGHT + TILE_GAP * 2) - 1
-HORIZONTAL_PADDING = BOTTOM_MARGIN * 3
-ROUNDING = 2.0
+TILE_GAP = 4
+BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 2
+HORIZONTAL_PADDING = 30
 SHADOW_OFFSET = 1
 
 GRID_TOP_SAFE_ZONE = 140
@@ -48,12 +52,12 @@ GRID_TOP_SAFE_ZONE = 140
 SCROLLBAR_WIDTH = 4
 SCROLLBAR_WIDTH_HOVER = 6
 SCROLLBAR_PADDING = TILE_GAP
-SCROLLBAR_MIN_THUMB = 4
+SCROLLBAR_MIN_THUMB = 8
 
 FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
-INFO_TEXT_OFFSET_Y = 24
+INFO_TEXT_OFFSET_Y = 18 + TILE_GAP
 
 
 class _DragState(Enum):
@@ -86,6 +90,7 @@ class GridLayout:
     th: float
     gap: float
     radius: float
+    panel_radius: float
     scale: float
     region: Region
     active_camera: bpy.types.Object | None
@@ -97,6 +102,8 @@ class GridLayout:
     grid_alignment: str
     visible_rows: int
     effective_max_rows: int
+    left_overlap: float
+    right_overlap: float
 
 
 @dataclass(slots=True, kw_only=True)
@@ -192,7 +199,6 @@ class ThumbnailManager:
 
         cls.original_shading_type = None
         cls.original_show_overlays = None
-        _get_base_rounded_rect.cache_clear()
         logger.debug("PREVIEW: Cache invalidated (gen %d)", cls.gen)
 
     @classmethod
@@ -244,90 +250,12 @@ class ThumbnailManager:
 # ------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=32)
-def _get_base_rounded_rect(w: float, h: float, r: float, segments: int = 6) -> tuple[tuple[float, float], ...]:
-    r = max(0, min(r, w / 2, h / 2))
-    if r == 0:
-        return ((w, h), (0.0, h), (0.0, 0.0), (w, 0.0))
-
-    verts = []
-    corners = [
-        (w - r, h - r, 0.0, math.pi / 2),
-        (r, h - r, math.pi / 2, math.pi),
-        (r, r, math.pi, math.pi * 1.5),
-        (w - r, r, math.pi * 1.5, math.pi * 2.0),
-    ]
-
-    for cx, cy, start_angle, end_angle in corners:
-        for i in range(segments + 1):
-            angle = start_angle + (end_angle - start_angle) * (i / segments)
-            verts.append((cx + math.cos(angle) * r, cy + math.sin(angle) * r))
-    return tuple(verts)
-
-
-def get_rounded_rect_perimeter(
-    x: float, y: float, w: float, h: float, r: float, segments: int = 6
-) -> list[tuple[float, float]]:
-    segments = max(segments, int(r * 3))
-    base_verts = _get_base_rounded_rect(w, h, r, segments)
-    return [(x + vx, y + vy) for vx, vy in base_verts]
-
-
-def _get_theme_colors() -> dict[str, tuple[float, float, float, float]]:
-    text = _theme("view_3d.space.header_text", (1.0, 1.0, 1.0))
-    return {
-        "tile_default": _rgba(_theme("view_3d.space.header", (0.25, 0.25, 0.25)), 1.0),
-        "tile_hover": _rgba(_theme("view_3d.space.header", (0.35, 0.35, 0.35)), 0.95),
-        "tile_picked": _rgba(_theme("user_interface.wcol_regular.inner_sel", (0.28, 0.45, 0.7)), 1.0),
-        "border_active": _rgba(_theme("view_3d.object_active", (1.0, 0.63, 0.16)), 1.0),
-        "text": _rgba(text, 1.0),
-        "info_text": _rgba(text, 1.0),
-        "tile_text": _rgba(_theme("user_interface.wcol_regular.text_sel", (1.0, 1.0, 1.0)), 1.0),
-    }
-
-
-def _draw_text_with_shadow(
-    font_id: int, text: str, x: float, y: float, color: tuple[float, float, float, float], scale: float
-):
-    outline = _compute_outline_color(color[:3])
-    blf.enable(font_id, blf.SHADOW)
-    blf.shadow(font_id, 3, int(outline[0] * 255), int(outline[1] * 255), int(outline[2] * 255), 255)
-    blf.shadow_offset(font_id, 0, -int(scale))
-    blf.position(font_id, x, y, 0)
-    blf.color(font_id, *color)
-    blf.draw(font_id, text)
-    blf.disable(font_id, blf.SHADOW)
-
-
 def _has_info_content(prefs) -> bool:
     return (
         prefs.settings.show_active_camera_name
         or prefs.settings.show_camera_settings
         or prefs.settings.show_camera_count
     )
-
-
-# ------------------------------------------------------------------------
-#    GPU Drawing Helpers
-# ------------------------------------------------------------------------
-
-
-def _draw_filled_rounded_rect(shader, x, y, w, h, r, color):
-    perimeter = get_rounded_rect_perimeter(x, y, w, h, r)
-    fill_coords = [(x + w / 2, y + h / 2)] + perimeter + [perimeter[0]]
-    batch = batch_for_shader(shader, "TRI_FAN", {"pos": fill_coords})
-    shader.bind()
-    shader.uniform_float("color", color)
-    batch.draw(shader)
-
-
-def _draw_rounded_rect_border(shader, x, y, w, h, r, color, line_width=1.0):
-    perimeter = get_rounded_rect_perimeter(x, y, w, h, r)
-    gpu.state.line_width_set(line_width)
-    shader.bind()
-    shader.uniform_float("color", color)
-    batch_for_shader(shader, "LINE_STRIP", {"pos": perimeter + [perimeter[0]]}).draw(shader)
-    gpu.state.line_width_set(1.0)
 
 
 # ------------------------------------------------------------------------
@@ -358,8 +286,9 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     source_objs = cam_col.objects if cam_col else bpy.data.objects
     cameras = sorted((obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name)
 
+    prefs = context.preferences.addons.get(__package__).preferences
     view_layer = getattr(context, "view_layer", None)
-    if view_layer is not None:
+    if view_layer is not None and not prefs.settings.show_hidden:
         cameras = [cam for cam in cameras if cam.name in view_layer.objects]
 
     region = region or getattr(context, "region", None)
@@ -382,7 +311,6 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         except ReferenceError:
             return None
 
-    prefs = context.preferences.addons.get(__package__).preferences
     if not prefs.settings.show_hidden:
         cameras = [cam for cam in cameras if cam.visible_get()]
 
@@ -418,10 +346,13 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         effective_max_rows = prefs.settings.max_rows
 
     gap = TILE_GAP * scale
-    radius = ROUNDING * scale
+    widget_roundness = _theme("user_interface.wcol_regular.roundness", 0)
+    panel_roundness = _theme("user_interface.panel_roundness", 0)
+    tile_radius = widget_roundness * 10.0 * scale
+    panel_radius_val = panel_roundness * 10.0 * scale
     bottom_margin = BOTTOM_MARGIN * scale + shelf_height + bottom_header_height
     if not _has_info_content(prefs):
-        bottom_margin -= INFO_TEXT_OFFSET_Y * scale
+        bottom_margin -= (INFO_TEXT_OFFSET_Y - 3) * scale
 
     min_region_height = bottom_margin + GRID_TOP_SAFE_ZONE + th + gap
     min_region_width = left_overlap + right_overlap + HORIZONTAL_PADDING * scale + tw
@@ -502,7 +433,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         tw=tw,
         th=th,
         gap=gap,
-        radius=radius,
+        radius=tile_radius,
+        panel_radius=panel_radius_val,
         scale=scale,
         region=region,
         active_camera=active_camera,
@@ -514,6 +446,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         grid_alignment=prefs.settings.alignment,
         visible_rows=min(effective_max_rows, total_rows - start_row),
         effective_max_rows=effective_max_rows,
+        left_overlap=left_overlap,
+        right_overlap=right_overlap,
     )
 
 
@@ -573,9 +507,7 @@ def _get_tile_at_mouse(layout: GridLayout, mouse_x: float, mouse_y: float) -> in
 def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> bool:
     grid_left = layout.origin_x - layout.gap
     grid_right = layout.origin_x + layout.grid_width + layout.gap
-    prefs = bpy.context.preferences.addons.get(__package__).preferences
-    info_offset = layout.info_offset_y if _has_info_content(prefs) else 0.0
-    grid_bottom = layout.origin_y - info_offset - layout.gap
+    grid_bottom = layout.origin_y - layout.gap
     grid_top = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
 
     if sb := _get_scrollbar_layout(layout):
@@ -862,28 +794,100 @@ def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
                 ThumbnailManager.queue_render(cam.name)
 
 
-def _draw_background_panel(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
-    bg_margin = layout.gap
+def _draw_background_panel(layout: GridLayout, colors: dict):
+    bg_margin = layout.gap + 1
     g_left = layout.origin_x - bg_margin
     g_right = layout.origin_x + layout.grid_width + bg_margin
     g_bottom = layout.origin_y - bg_margin
     g_top = layout.origin_y + layout.th * layout.visible_rows + (layout.visible_rows - 1) * layout.gap + bg_margin
-
     if sb := _get_scrollbar_layout(layout):
         if layout.grid_alignment == "LEFT":
             g_left = sb.track_left - bg_margin
         else:
             g_right = sb.track_left + SCROLLBAR_WIDTH * layout.scale + bg_margin
 
-    bg_color = _rgba(color_contrast(colors["tile_default"], 0.5 if GridState.mouse_in_grid else 0.3), 0.85)
-    gpu.state.blend_set("ALPHA")
-    _draw_filled_rounded_rect(shader, g_left, g_bottom, g_right - g_left, g_top - g_bottom, layout.radius * 2, bg_color)
-    gpu.state.blend_set("NONE")
+    radius = layout.panel_radius * 1
+    shadow_offset = SHADOW_OFFSET * layout.scale
+
+    _draw_filled_rounded_rect(
+        g_left + 1, g_bottom - shadow_offset, g_right - g_left - 1, g_top - g_bottom, radius, (0.0, 0.0, 0.0, 0.4)
+    )
+
+    _draw_filled_rounded_rect(g_left, g_bottom, g_right - g_left, g_top - g_bottom, radius, colors["bg_color"])
+
+    _draw_rounded_rect_border(
+        g_left, g_bottom, g_right - g_left, g_top - g_bottom, radius, colors["panel_border"], 0.5 * layout.scale
+    )
 
 
-def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader, prefs, active_scene):
+def _draw_dot_tiles(layout: GridLayout, colors: dict):
+    """Draw camera tiles in DOTS mode — pill shapes with no text labels."""
+    shadow_offset = SHADOW_OFFSET * layout.scale
+    line_width = 0.15 * layout.scale
+
+    for i in range(layout.start_index, layout.end_index):
+        cam = layout.cameras[i]
+        x = round(layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap))
+        y = round(layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap))
+
+        if y > layout.region.height or y + layout.th < 0:
+            continue
+
+        selected = cam.select_get()
+        is_active = cam == layout.active_camera
+        is_hovered = i == GridState.hovered_tile
+
+        if is_active:
+            base_col = colors["tile_picked"]
+        else:
+            base_col = colors["tile_default"]
+
+        draw_pill = False
+        if draw_pill:
+            # Draw the background shadow
+            _draw_pill(x, y - shadow_offset, layout.tw, layout.th, (0.0, 0.0, 0.0, 0.4))
+
+            # Draw the tile background
+            _draw_pill(x, y, layout.tw, layout.th, base_col)
+
+            # Draw the tile highlight (if hovered)
+            if is_hovered:
+                _draw_pill(x, y, layout.tw, layout.th, _rgba(colors["text"], 0.04))
+
+            _draw_pill_border(x, y, layout.tw, layout.th, colors["tile_border"], line_width)
+
+            if selected:
+                _draw_pill_border(x, y, layout.tw, layout.th, colors["border_active"], line_width)
+        else:
+            radius = layout.radius
+            # Draw the background shadow
+            _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
+
+            # Draw the tile background
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
+
+            # Draw the tile highlight (if hovered)
+            if is_hovered:
+                _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
+
+            if selected:
+                _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["border_active"], line_width)
+
+
+def _draw_label_tiles(layout: GridLayout, colors: dict):
+    """Draw camera tiles in TILES mode — rounded rects with centered text labels."""
     font_id = FONT_ID
     blf.size(font_id, layout.font_size)
+    _, ref_font_h = blf.dimensions(font_id, "Ag")
+
+    shadow_offset = SHADOW_OFFSET * layout.scale
+    line_width = 0.5 * layout.scale
+    ellipsis_width = blf.dimensions(font_id, "...")[0]
+    inset = line_width * 2
+    max_t_w = layout.tw - 8 * layout.scale
+    radius = layout.radius
 
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
@@ -897,121 +901,142 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
         is_active = cam == layout.active_camera
         is_hovered = i == GridState.hovered_tile
 
-        if prefs.settings.display_type == "THUMBNAILS":
-            cached = ThumbnailManager.cache.get(cam.name)
-            is_valid, is_stale = False, False
-            if cached:
-                sig = _get_camera_state_signature(cam, active_scene)
-                if cached[0] == ThumbnailManager.gen and cached[2] == sig:
-                    is_valid = True
-                elif cached[0] == ThumbnailManager.gen:
-                    is_stale = True
-
-            if is_valid:
-                ThumbnailManager.cache[cam.name] = (cached[0], cached[1], cached[2], time.monotonic())
-                ThumbnailManager.stale.discard(cam.name)
-
-                gpu.state.depth_mask_set(False)
-                gpu.state.blend_set("ALPHA")
-                draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
-
-                if is_active and not is_hovered:
-                    overlay_col = _rgba(colors["tile_picked"], 0.25)
-                elif is_active and is_hovered:
-                    overlay_col = _rgba(color_contrast(colors["tile_picked"], 1.3), 0.25)
-                elif is_hovered:
-                    overlay_col = _rgba(colors["text"], 0.1)
-                else:
-                    overlay_col = _rgba(colors["tile_default"], 0.15)
-
-                _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, overlay_col)
-                gpu.state.blend_set("NONE")
-                gpu.state.depth_mask_set(True)
-            else:
-                if is_stale:
-                    ThumbnailManager.stale.add(cam.name)
-                base_col = colors["tile_hover"] if is_hovered else colors["tile_default"]
-                gpu.state.blend_set("ALPHA")
-                _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, base_col)
-                if is_stale:
-                    if is_hovered:
-                        overlay_col = _rgba(colors["text"], 0.1)
-                    else:
-                        overlay_col = _rgba(colors["tile_default"], 0.6)
-                    draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
-                    _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, overlay_col)
-                gpu.state.blend_set("NONE")
-
+        if is_active:
+            base_col = colors["tile_picked"]
         else:
-            if is_active and not is_hovered:
-                base_col = colors["tile_picked"]
-            elif is_active and is_hovered:
-                base_col = color_contrast(colors["tile_picked"], 1.1)
-            elif is_hovered:
-                base_col = color_contrast(colors["tile_hover"], 1.3)
-            else:
-                base_col = colors["tile_default"]
+            base_col = colors["tile_default"]
 
-            shadow_offset = SHADOW_OFFSET * layout.scale
-            gpu.state.blend_set("ALPHA")
-            _draw_filled_rounded_rect(
-                shader,
-                x,
-                y - shadow_offset,
-                layout.tw,
-                layout.th,
-                layout.radius,
-                (0.0, 0.0, 0.0, 0.2),
-            )
-            gpu.state.blend_set("NONE")
-            _draw_filled_rounded_rect(shader, x, y, layout.tw, layout.th, layout.radius, base_col)
+        # Draw the background shadow
+        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
 
-        if prefs.settings.display_type == "THUMBNAILS":
-            gpu.state.blend_set("ALPHA")
-            _draw_rounded_rect_border(
-                shader,
-                x,
-                y,
-                layout.tw,
-                layout.th,
-                layout.radius,
-                _rgba(color_contrast(colors["text"], 0.85), 0.05),
-                line_width=2.0 * layout.scale,
-            )
-            gpu.state.blend_set("NONE")
+        # Draw the tile background
+        _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
 
-        if selected or (prefs.settings.display_type == "THUMBNAILS" and is_active):
-            border_col = colors["border_active"] if selected else colors["tile_picked"]
-            _draw_rounded_rect_border(
-                shader,
-                x,
-                y,
-                layout.tw,
-                layout.th,
-                layout.radius,
-                border_col,
-                line_width=(2.0 if selected else 1.5) * layout.scale,
-            )
+        # Draw the tile highlight (if hovered)
+        if is_hovered:
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+
+        _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width * 0.5)
+
+        # Draw the tile border (if selected or active)
+        if selected:
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["border_active"], line_width)
 
             if selected and is_active:
-                inset = 2.0 * layout.scale
                 if layout.tw - 2 * inset > 0 and layout.th - 2 * inset > 0:
                     _draw_rounded_rect_border(
-                        shader,
                         x + inset,
                         y + inset,
                         layout.tw - 2 * inset,
                         layout.th - 2 * inset,
                         max(0.0, layout.radius - inset),
                         colors["tile_picked"],
-                        line_width=1.5 * layout.scale,
+                        line_width,
                     )
 
-        if prefs.settings.display_type != "DOTS":
+        text = cam.name
+        if blf.dimensions(font_id, text)[0] > max_t_w:
+            max_w_no_ell = max_t_w - ellipsis_width
+            left, right = len(text) // 2, len(text) // 2 + 1
+            while (
+                left > 0 and right < len(text) and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
+            ):
+                left -= 1
+                right += 1
+            text = text[:left] + "..." + text[right:]
+
+        tw, _ = blf.dimensions(font_id, text)
+        if selected:
+            text_color = colors["border_active"]
+        elif is_active:
+            text_color = colors["tile_text"]
+        else:
+            text_color = colors["tile_text_inactive"]
+        _draw_text_with_shadow(
+            font_id, text, x + (layout.tw - tw) / 2, y + (layout.th - ref_font_h) / 2 + 1, text_color, layout.scale
+        )
+
+
+def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
+    """Draw camera tiles in THUMBNAILS mode — cached preview images with badge labels."""
+    font_id = FONT_ID
+    blf.size(font_id, layout.font_size)
+
+    line_width = 0.5 * layout.scale
+    radius = 0
+    ellipsis_width = blf.dimensions(font_id, "...")[0]
+    badge_pad = 4 * layout.scale
+    max_t_w = layout.tw - 12 * layout.scale
+    badge_font_size = max(6, int(FONT_SIZE * layout.scale))
+    shadow_offset = SHADOW_OFFSET * layout.scale
+
+    blf.size(BADGE_FONT_ID, badge_font_size)
+
+    for i in range(layout.start_index, layout.end_index):
+        cam = layout.cameras[i]
+        x = layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap)
+        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
+
+        if y > layout.region.height or y + layout.th < 0:
+            continue
+
+        selected = cam.select_get()
+        is_active = cam == layout.active_camera
+        is_hovered = i == GridState.hovered_tile
+
+        cached = ThumbnailManager.cache.get(cam.name)
+        is_valid, is_stale = False, False
+        if cached:
+            sig = _get_camera_state_signature(cam, active_scene)
+            if cached[0] == ThumbnailManager.gen and cached[2] == sig:
+                is_valid = True
+            elif cached[0] == ThumbnailManager.gen:
+                is_stale = True
+
+        if is_valid:
+            ThumbnailManager.cache[cam.name] = (cached[0], cached[1], cached[2], time.monotonic())
+            ThumbnailManager.stale.discard(cam.name)
+        elif is_stale:
+            ThumbnailManager.stale.add(cam.name)
+
+        # Tile Shadow
+        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
+
+        # Tile Background
+        _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, colors["tile_default"])
+
+        # Draw Tile Texture
+        if cached:
+            draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
+
+        # Stale Tile Overlay
+        if not is_valid and is_stale:
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_default"], 0.5))
+
+        # Active Tile Overlay
+        if is_active:
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.25))
+
+        # Hovered Tile Overlay
+        if is_hovered:
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+
+        # Draw Light Tile Border
+        _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
+
+        # Selected Tile Border
+        if selected or is_active:
+            if selected and is_active:
+                _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_picked"], line_width * 2)
+
+            border_col = colors["border_active"] if selected else colors["tile_picked"]
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
+
+        # Tile Camera Name
+        if prefs.settings.preview_show_names:
             text = cam.name
-            max_t_w = layout.tw - (12 if prefs.settings.display_type == "THUMBNAILS" else 8) * layout.scale
             if blf.dimensions(font_id, text)[0] > max_t_w:
-                max_w_no_ell = max_t_w - blf.dimensions(font_id, "...")[0]
+                max_w_no_ell = max_t_w - ellipsis_width
                 left, right = len(text) // 2, len(text) // 2 + 1
                 while (
                     left > 0
@@ -1022,29 +1047,34 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, shader: gpu.types.GPUSh
                     right += 1
                 text = text[:left] + "..." + text[right:]
 
-            tw, th = blf.dimensions(font_id, text)
-            text_color = colors["border_active" if selected else "tile_text"]
+            btw, bth = (blf.dimensions(BADGE_FONT_ID, text)[0], 8 * layout.scale)
+            bw, bh = btw + badge_pad * 2, bth + badge_pad * 2
+            bx, by = x + round((layout.tw - bw) / 2), y + badge_pad
 
-            if prefs.settings.display_type == "THUMBNAILS" and prefs.settings.preview_show_names:
-                blf.size(BADGE_FONT_ID, max(6, int(FONT_SIZE * layout.scale)))
-                btw, bth = blf.dimensions(BADGE_FONT_ID, text)
-                pad = 4 * layout.scale
-                bw, bh = btw + pad * 2, bth + pad * 2
-                bx, by = x + round((layout.tw - bw) / 2), y + pad
+            bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
+            _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5))
 
-                bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
-                gpu.state.blend_set("ALPHA")
-                _draw_filled_rounded_rect(shader, bx, by, bw, bh, pad, _rgba(bg_col[:3], 0.6))
-                gpu.state.blend_set("NONE")
-                _draw_text_with_shadow(BADGE_FONT_ID, text, bx + pad, by + pad, text_color, layout.scale)
-
-            elif prefs.settings.display_type == "TILES":
-                _draw_text_with_shadow(
-                    font_id, text, x + (layout.tw - tw) / 2, y + (layout.th - th) / 2, text_color, layout.scale
-                )
+            if selected:
+                text_color = colors["border_active"]
+            elif is_active:
+                text_color = colors["tile_text"]
+            else:
+                text_color = colors["tile_text_inactive"]
+            _draw_text_with_shadow(BADGE_FONT_ID, text, bx + badge_pad, by + badge_pad, text_color, layout.scale)
 
 
-def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
+def _draw_camera_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
+    """Dispatch to the appropriate display-type draw function."""
+    display_type = prefs.settings.display_type
+    if display_type == "THUMBNAILS":
+        _draw_thumbnail_tiles(layout, colors, prefs, active_scene)
+    elif display_type == "TILES":
+        _draw_label_tiles(layout, colors)
+    else:  # DOTS
+        _draw_dot_tiles(layout, colors)
+
+
+def _draw_scrollbar(layout: GridLayout, colors: dict):
     if layout.total_rows <= layout.effective_max_rows:
         return
     if sb := _get_scrollbar_layout(layout):
@@ -1057,22 +1087,12 @@ def _draw_scrollbar(layout: GridLayout, colors: dict, shader: gpu.types.GPUShade
         else:
             bar_left = sb.track_left
             bar_right = bar_left + sb_w
-        gpu.state.blend_set("ALPHA")
-        contrast = 1.5 if is_hovered else 1.2
-        color = color_contrast(colors["tile_default"], contrast)
-        _draw_filled_rounded_rect(
-            shader,
-            bar_left,
-            round(sb.thumb_y),
-            round(bar_right - bar_left),
-            round(sb.thumb_h),
-            round((bar_right - bar_left) / 2),
-            color,
-        )
-        gpu.state.blend_set("NONE")
+        alpha = 1.0 if is_hovered else 0.6
+        color = _rgba(colors["scroll_bar"], alpha)
+        _draw_pill(round(bar_left), round(sb.thumb_y), round(bar_right - bar_left), round(sb.thumb_h), color)
 
 
-def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUShader):
+def _draw_footer_info(layout: GridLayout, colors: dict):
     font_id = FONT_ID
     blf.size(font_id, layout.font_size)
     prefs = bpy.context.preferences.addons.get(__package__).preferences
@@ -1097,16 +1117,20 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
                 ortho_scale = getattr(data, "ortho_scale", None)
                 if ortho_scale:
                     parts.append(f"Scale: {ortho_scale:.2f}")
+            elif cam_type == "PANO":
+                lens = getattr(data, "lens", 0)
+                if lens > 0:
+                    parts.append(f"Lens: {int(lens)} mm")
 
     if prefs.settings.show_camera_count:
         n = len(layout.cameras)
-        count_str = f"{n} Camera{'s' if n != 1 else ''}"
+        count_str = f"Cameras: {n}"
         if layout.total_rows > layout.effective_max_rows:
-            count_str += f" ({layout.start_index + 1}-{layout.end_index})"
+            count_str = f"Cameras: {n} ({layout.start_index + 1}/{layout.end_index})"
         parts.append(count_str)
 
-    if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
-        parts.append(f"{sel_count} Selected")
+        if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
+            parts.append(f"Selected: {sel_count}")
 
     if ThumbnailManager.render_timer_active:
         parts.append("Loading...")
@@ -1115,9 +1139,8 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
         return
 
     info_text = " | ".join(parts)
-
     iw, _ = blf.dimensions(font_id, info_text)
-    ih = layout.font_size
+
     if layout.grid_alignment == "LEFT":
         ix = layout.origin_x
     elif layout.grid_alignment == "RIGHT":
@@ -1125,15 +1148,19 @@ def _draw_footer_info(layout: GridLayout, colors: dict, shader: gpu.types.GPUSha
     else:
         ix = layout.origin_x + (layout.grid_width - iw) / 2
 
-    pad = 6 * layout.scale
     iy = layout.origin_y - layout.info_offset_y
-    bg_color = _rgba(_compute_outline_color(colors["info_text"]), 0.4)
 
-    gpu.state.blend_set("ALPHA")
-    _draw_filled_rounded_rect(
-        shader, round(ix - pad), round(iy - pad), round(iw + pad * 2), round(ih + pad * 1.5), layout.radius, bg_color
-    )
-    gpu.state.blend_set("NONE")
+    # Text Background
+    # ih = layout.font_size
+    # pad = 5 * layout.scale
+    # _draw_filled_rounded_rect(
+    #     round(ix - pad),
+    #     round(iy - pad),
+    #     round(iw + pad * 2),
+    #     round(ih + pad * 1.5),
+    #     layout.radius,
+    #     _rgba(colors["bg_color"], 0.5),
+    # )
 
     _draw_text_with_shadow(font_id, info_text, ix, iy, colors["info_text"], layout.scale)
 
@@ -1148,18 +1175,17 @@ def _draw_grid():
     except (AttributeError, IndexError, ReferenceError):
         return
 
-    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     prefs = bpy.context.preferences.addons.get(__package__).preferences
     active_scene = bpy.context.scene
 
     _evict_orphaned_thumbnails(layout.cameras)
     _queue_missing_thumbnails(layout, prefs, active_scene)
 
-    _draw_background_panel(layout, colors, shader)
-    _draw_camera_tiles(layout, colors, shader, prefs, active_scene)
-    _draw_scrollbar(layout, colors, shader)
+    _draw_background_panel(layout, colors)
+    _draw_camera_tiles(layout, colors, prefs, active_scene)
+    _draw_scrollbar(layout, colors)
     if _has_info_content(prefs):
-        _draw_footer_info(layout, colors, shader)
+        _draw_footer_info(layout, colors)
 
 
 # ------------------------------------------------------------------------
@@ -1260,9 +1286,12 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         match event_type:
             case "ESC" if event.value == "PRESS":
-                if is_grid_active(context):
-                    toggle_grid(context)
-                return {"CANCELLED"}
+                prefs = context.preferences.addons.get(__package__).preferences
+                if prefs.settings.close_on_esc:
+                    if is_grid_active(context):
+                        toggle_grid(context)
+                    return {"CANCELLED"}
+                return {"PASS_THROUGH"}
 
             case "MOUSEMOVE":
                 return self._handle_mousemove(context, event)
@@ -1591,14 +1620,12 @@ class CAMGRID_OT_frame_camera(Operator):
                 + layout.visible_rows * (layout.th + layout.gap)
                 + prefs.settings.frame_bottom_padding * scale
             )
-            if layout
+            if layout and prefs.settings.frame_grid_padding
             else prefs.settings.frame_bottom_padding * scale
         )
 
         top_margin = prefs.settings.frame_top_padding * scale
         grid_frac = min(0.6, grid_top / float(region.height))
-        if grid_frac <= 0:
-            return {"CANCELLED"}
 
         left_overlap, right_overlap = _get_left_right_overlap(context.area)
         avail_w = max(

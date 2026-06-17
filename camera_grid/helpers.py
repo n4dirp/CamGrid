@@ -1,4 +1,4 @@
-"""Shared helper utilities for Camera Grid extension."""
+"""Shared helper utilities."""
 
 import math
 from typing import Any, TypeVar
@@ -45,9 +45,21 @@ def _theme(path: str, default: T) -> T:
             value = getattr(value, part)
         if hasattr(value, "copy"):
             return tuple(value)  # type: ignore
-        return value
+        try:
+            return tuple(value)  # type: ignore
+        except TypeError:
+            return value
     except AttributeError:
         return default
+
+
+def _srgb_to_linear(c: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    """Convert sRGB float color (0-1) to linear color space for GPU rendering."""
+
+    def _conv(ch: float) -> float:
+        return ch / 12.92 if ch <= 0.04045 else ((ch + 0.055) / 1.055) ** 2.4
+
+    return (_conv(c[0]), _conv(c[1]), _conv(c[2]), c[3])
 
 
 def _rgba(value: tuple[float, ...], alpha: float) -> tuple[float, float, float, float]:
