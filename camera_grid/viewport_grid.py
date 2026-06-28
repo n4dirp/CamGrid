@@ -28,7 +28,6 @@ from .helpers import (
     _optimize_grid_columns,
     _rgba,
     _theme,
-    # color_contrast,
     redraw_ui,
 )
 
@@ -40,7 +39,6 @@ logger = logging.getLogger(__package__)
 
 DOT_WIDTH = 18
 DOT_HEIGHT = 9
-# TILE_WIDTH = 48
 TILE_HEIGHT = 24
 TILE_GAP = 4
 BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 2
@@ -104,6 +102,9 @@ class GridLayout:
     effective_max_rows: int
     left_overlap: float
     right_overlap: float
+    area_pointer: int
+    hovered_tile: int | None
+    scrollbar_hovered: bool
 
 
 @dataclass(slots=True, kw_only=True)
@@ -126,19 +127,27 @@ class ScrollbarLayout:
 # ------------------------------------------------------------------------
 
 
-class GridState:
-    """Encapsulates all interactive and UI state for the camera grid."""
+@dataclass
+class AreaGridState:
+    """Area-specific interactive state for a camera grid."""
 
-    handler: object | None = None
-    target_area_pointer: int | None = None
-    target_region_pointer: int | None = None
-    modal_operator: Operator | None = None
-
+    target_area_pointer: int
+    target_region_pointer: int
     current_start_row: int = -1
     last_active_index: int = -1
     mouse_in_grid: bool = False
     hovered_tile: int | None = None
     scrollbar_hovered: bool = False
+
+
+class GridState:
+    """Encapsulates all interactive and UI state for the camera grid."""
+
+    handler: object | None = None
+    modal_operator: Operator | None = None
+
+    # Track states for each active 3D Viewport area pointer
+    areas: dict[int, AreaGridState] = {}
 
     drag_state: _DragState = _DragState.IDLE
     drag_tile: int = -1
@@ -146,21 +155,22 @@ class GridState:
     drag_last_scroll_time: float = 0.0
     drag_select_value: bool = False
 
+    # Heartbeat trackers to restart modal operator if Blender kills it (e.g. Workspace switch)
+    modal_last_tick: float = 0.0
+    restart_pending: bool = False
+
     @classmethod
     def reset(cls):
         cls.handler = None
-        cls.target_area_pointer = None
-        cls.target_region_pointer = None
         cls.modal_operator = None
-        cls.current_start_row = -1
-        cls.last_active_index = -1
-        cls.mouse_in_grid = False
-        cls.scrollbar_hovered = False
+        cls.areas.clear()
         cls.drag_state = _DragState.IDLE
         cls.drag_tile = -1
         cls.drag_last_tile = -1
         cls.drag_last_scroll_time = 0.0
         cls.drag_select_value = False
+        cls.modal_last_tick = 0.0
+        cls.restart_pending = False
 
 
 class ThumbnailManager:
@@ -235,21 +245,13 @@ class ThumbnailManager:
     @classmethod
     def _restore_viewport(cls):
         context = bpy.context
-        target_area = next(
-            (
-                a
-                for w in context.window_manager.windows
-                for a in w.screen.areas
-                if a.as_pointer() == GridState.target_area_pointer
-            ),
-            None,
-        )
-        space_view3d = (
-            target_area.spaces.active
-            if target_area and target_area.type == "VIEW_3D"
-            else None
-        )
-        cls.cleanup_shading(space_view3d)
+        for area_ptr in list(GridState.areas.keys()):
+            target_area = next(
+                (a for w in context.window_manager.windows for a in w.screen.areas if a.as_pointer() == area_ptr),
+                None,
+            )
+            space_view3d = target_area.spaces.active if target_area and target_area.type == "VIEW_3D" else None
+            cls.cleanup_shading(space_view3d)
 
 
 # ------------------------------------------------------------------------
@@ -265,6 +267,23 @@ def _has_info_content(prefs) -> bool:
     )
 
 
+def _get_area_and_region_under_mouse(context: Context, event: Event):
+    window = getattr(context, "window", None)
+    if not window:
+        return None, None
+    mouse_x, mouse_y = event.mouse_x, event.mouse_y
+    for area in window.screen.areas:
+        if area.x <= mouse_x <= area.x + area.width and area.y <= mouse_y <= area.y + area.height:
+            for region in area.regions:
+                if (
+                    region.type == "WINDOW"
+                    and region.x <= mouse_x <= region.x + region.width
+                    and region.y <= mouse_y <= region.y + region.height
+                ):
+                    return area, region
+    return None, None
+
+
 # ------------------------------------------------------------------------
 #    Layout Computations
 # ------------------------------------------------------------------------
@@ -276,20 +295,12 @@ def _is_redo_panel_visible(context: Context) -> bool:
     if not area:
         return False
     for region in area.regions:
-        if (
-            region.type == "HUD"
-            and region.width > 1
-            and region.height > 1
-            and region.x > 0
-            and region.y > 0
-        ):
+        if region.type == "HUD" and region.width > 1 and region.height > 1 and region.x > 0 and region.y > 0:
             return True
     return False
 
 
-def _compute_grid_layout(
-    context: Context, area=None, region=None, scene=None
-) -> GridLayout | None:
+def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -> GridLayout | None:
     scene = scene or getattr(context, "scene", None)
     if not scene:
         return None
@@ -299,9 +310,7 @@ def _compute_grid_layout(
 
     cam_col = props.source_collection
     source_objs = cam_col.objects if cam_col else bpy.data.objects
-    cameras = sorted(
-        (obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name
-    )
+    cameras = sorted((obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name)
 
     prefs = context.preferences.addons.get(__package__).preferences
     view_layer = getattr(context, "view_layer", None)
@@ -318,12 +327,13 @@ def _compute_grid_layout(
     except ReferenceError:
         return None
 
-    if GridState.target_area_pointer and area_ptr != GridState.target_area_pointer:
+    state = GridState.areas.get(area_ptr)
+    if not state:
         return None
 
-    if GridState.target_region_pointer:
+    if state.target_region_pointer:
         try:
-            if region.as_pointer() != GridState.target_region_pointer:
+            if region.as_pointer() != state.target_region_pointer:
                 return None
         except ReferenceError:
             return None
@@ -346,14 +356,10 @@ def _compute_grid_layout(
 
     if prefs.settings.display_type == "THUMBNAILS":
         render = scene.render
-        aspect = (render.resolution_x * render.pixel_aspect_x) / (
-            render.resolution_y * render.pixel_aspect_y
-        )
+        aspect = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
         max_side = prefs.settings.preview_size
         preview_w, preview_h = (
-            (max_side, round(max_side / aspect))
-            if aspect >= 1.0
-            else (round(max_side * aspect), max_side)
+            (max_side, round(max_side / aspect)) if aspect >= 1.0 else (round(max_side * aspect), max_side)
         )
         tw, th = preview_w * scale, preview_h * scale
         effective_max_rows = prefs.settings.preview_max_rows
@@ -407,9 +413,7 @@ def _compute_grid_layout(
     )
     max_cols = min(max_cols, max_cols_pref)
 
-    columns = _optimize_grid_columns(
-        total_cameras, max_cols, effective_max_rows, max_available_width, tw, gap
-    )
+    columns = _optimize_grid_columns(total_cameras, max_cols, effective_max_rows, max_available_width, tw, gap)
     active_camera = scene.camera
     active_index = cameras.index(active_camera) if active_camera in cameras else 0
 
@@ -417,18 +421,18 @@ def _compute_grid_layout(
     active_row = active_index // columns
     max_scroll = max(0, total_rows - effective_max_rows)
 
-    if active_index != GridState.last_active_index:
-        if GridState.current_start_row == -1:
-            GridState.current_start_row = max(0, active_row - effective_max_rows // 2)
+    if active_index != state.last_active_index:
+        if state.current_start_row == -1:
+            state.current_start_row = max(0, active_row - effective_max_rows // 2)
         else:
-            if active_row < GridState.current_start_row:
-                GridState.current_start_row = active_row
-            elif active_row >= GridState.current_start_row + effective_max_rows:
-                GridState.current_start_row = active_row - effective_max_rows + 1
-        GridState.last_active_index = active_index
+            if active_row < state.current_start_row:
+                state.current_start_row = active_row
+            elif active_row >= state.current_start_row + effective_max_rows:
+                state.current_start_row = active_row - effective_max_rows + 1
+        state.last_active_index = active_index
 
-    GridState.current_start_row = max(0, min(GridState.current_start_row, max_scroll))
-    start_row = GridState.current_start_row
+    state.current_start_row = max(0, min(state.current_start_row, max_scroll))
+    start_row = state.current_start_row
 
     start_index = start_row * columns
     end_index = min(total_cameras, start_index + effective_max_rows * columns)
@@ -471,6 +475,9 @@ def _compute_grid_layout(
         effective_max_rows=effective_max_rows,
         left_overlap=left_overlap,
         right_overlap=right_overlap,
+        area_pointer=area_ptr,
+        hovered_tile=state.hovered_tile,
+        scrollbar_hovered=state.scrollbar_hovered,
     )
 
 
@@ -515,19 +522,14 @@ def _get_scrollbar_layout(layout: GridLayout) -> ScrollbarLayout | None:
 # ------------------------------------------------------------------------
 
 
-def _get_tile_at_mouse(
-    layout: GridLayout, mouse_x: float, mouse_y: float
-) -> int | None:
+def _get_tile_at_mouse(layout: GridLayout, mouse_x: float, mouse_y: float) -> int | None:
     for i in range(layout.start_index, layout.end_index):
         column = i % layout.columns
         drawn_row = (i // layout.columns) - layout.start_row
         box_x = layout.origin_x + column * (layout.tw + layout.gap)
         box_y = layout.origin_y + drawn_row * (layout.th + layout.gap)
 
-        if (
-            box_x <= mouse_x <= box_x + layout.tw
-            and box_y <= mouse_y <= box_y + layout.th
-        ):
+        if box_x <= mouse_x <= box_x + layout.tw and box_y <= mouse_y <= box_y + layout.th:
             return i
     return None
 
@@ -547,31 +549,35 @@ def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> boo
     return grid_left <= mouse_x <= grid_right and grid_bottom <= mouse_y <= grid_top
 
 
-def _switch_to_camera_view(context: Context):
-    area = context.area
+def _switch_to_camera_view(context: Context, area=None):
+    area = area or getattr(context, "area", None)
     if area and area.type == "VIEW_3D":
         space = area.spaces.active
         if space and space.type == "VIEW_3D":
             space.region_3d.view_perspective = "CAMERA"
 
 
-def _apply_on_switch_action(context):
+def _apply_on_switch_action(context, area=None, region=None):
     prefs = context.preferences.addons.get(__package__).preferences
     match prefs.settings.on_switch_action:
         case "CAMERA_VIEW":
-            _switch_to_camera_view(context)
+            _switch_to_camera_view(context, area)
         case "FRAME":
             try:
-                bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
+                if area and region:
+                    with context.temp_override(window=context.window, area=area, region=region):
+                        bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
+                else:
+                    bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
             except Exception:
                 pass
 
 
-def _action_switch_camera(layout: GridLayout, tile_index: int, context=None):
+def _action_switch_camera(layout: GridLayout, tile_index: int, context=None, area=None, region=None):
     context = context or bpy.context
     if 0 <= tile_index < len(layout.cameras):
         context.scene.camera = layout.cameras[tile_index]
-    _apply_on_switch_action(context)
+    _apply_on_switch_action(context, area, region)
 
 
 def _action_select_camera(layout: GridLayout, tile_index: int):
@@ -582,15 +588,11 @@ def _action_select_camera(layout: GridLayout, tile_index: int):
             bpy.context.view_layer.objects.active = cam
     except RuntimeError:
         pass
-    redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+    redraw_ui("VIEW_3D", area_pointer=layout.area_pointer)
 
 
-def _drag_tile_action(
-    layout: GridLayout, mx: float, my: float, ref_index: int, action_fn
-) -> int:
-    if (
-        tile_index := _get_tile_at_mouse(layout, mx, my)
-    ) is not None and tile_index != ref_index:
+def _drag_tile_action(layout: GridLayout, mx: float, my: float, ref_index: int, action_fn) -> int:
+    if (tile_index := _get_tile_at_mouse(layout, mx, my)) is not None and tile_index != ref_index:
         action_fn(layout, tile_index)
         return tile_index
     return ref_index
@@ -622,16 +624,18 @@ def _process_thumbnail_queue():
         return None
 
     context = bpy.context
-    target_area = next(
-        (
-            a
-            for w in context.window_manager.windows
-            for a in w.screen.areas
-            if a.as_pointer() == GridState.target_area_pointer
-        ),
-        None,
-    )
-    if not target_area or target_area.type != "VIEW_3D":
+    target_area = None
+    state = None
+    for area_ptr, s in GridState.areas.items():
+        target_area = next(
+            (a for w in context.window_manager.windows for a in w.screen.areas if a.as_pointer() == area_ptr),
+            None,
+        )
+        if target_area and target_area.type == "VIEW_3D":
+            state = s
+            break
+
+    if not target_area or not state:
         ThumbnailManager.cleanup_shading()
         ThumbnailManager.render_timer_active = False
         return None
@@ -644,9 +648,7 @@ def _process_thumbnail_queue():
         ThumbnailManager.render_timer_active = False
         return None
 
-    visible_keys = {
-        layout.cameras[idx].name for idx in range(layout.start_index, layout.end_index)
-    }
+    visible_keys = {layout.cameras[idx].name for idx in range(layout.start_index, layout.end_index)}
     visible_pending = list(ThumbnailManager.pending.intersection(visible_keys))
     offscreen_pending = list(ThumbnailManager.pending.difference(visible_keys))
     ordered_pending = visible_pending + offscreen_pending
@@ -721,7 +723,7 @@ def _process_thumbnail_queue():
                         )
 
         ThumbnailManager.render_elapsed_ms += (time.perf_counter() - batch_start) * 1000
-        redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+        redraw_ui("VIEW_3D")
     except Exception as e:
         logger.error("PREVIEW: Exception during batch run: %s", str(e))
 
@@ -734,8 +736,7 @@ def _process_thumbnail_queue():
         "PREVIEW: All %d thumbnails rendered in %.0f ms (%.1f ms avg)",
         ThumbnailManager.preview_rendered_count,
         ThumbnailManager.render_elapsed_ms,
-        ThumbnailManager.render_elapsed_ms
-        / max(ThumbnailManager.preview_rendered_count, 1),
+        ThumbnailManager.render_elapsed_ms / max(ThumbnailManager.preview_rendered_count, 1),
     )
 
     ThumbnailManager.render_timer_active = False
@@ -753,9 +754,7 @@ def _render_thumbnail(cam, scene, depsgraph, space_view3d, region, tw, th):
         prefs = bpy.context.preferences.addons.get(__package__).preferences
         r = scene.render
         aspect = (
-            (r.resolution_x * r.pixel_aspect_x) / (r.resolution_y * r.pixel_aspect_y)
-            if r.resolution_y > 0
-            else 1.0
+            (r.resolution_x * r.pixel_aspect_x) / (r.resolution_y * r.pixel_aspect_y) if r.resolution_y > 0 else 1.0
         )
         max_side = int(prefs.settings.preview_size * scale)
         render_w, render_h = (
@@ -800,9 +799,7 @@ def _render_thumbnail(cam, scene, depsgraph, space_view3d, region, tw, th):
         except Exception:
             pass
         ThumbnailManager.in_preview_render = False
-        logger.error(
-            "PREVIEW: Failed to render thumbnail for '%s': %s", cam.name, str(e)
-        )
+        logger.error("PREVIEW: Failed to render thumbnail for '%s': %s", cam.name, str(e))
         return None
 
 
@@ -829,33 +826,20 @@ def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
     for idx in range(layout.start_index, layout.end_index):
         cam = layout.cameras[idx]
         if cached := ThumbnailManager.cache.get(cam.name):
-            if not (
-                cached[0] == ThumbnailManager.gen
-                and cached[2] == _get_camera_state_signature(cam, active_scene)
-            ):
+            if not (cached[0] == ThumbnailManager.gen and cached[2] == _get_camera_state_signature(cam, active_scene)):
                 ThumbnailManager.stale.add(cam.name)
         else:
             missing_visible = True
 
     if missing_visible:
-        p_start_idx = (
-            max(0, layout.start_row - prefs.settings.preview_precache_rows)
-            * layout.columns
-        )
+        p_start_idx = max(0, layout.start_row - prefs.settings.preview_precache_rows) * layout.columns
         p_end_idx = min(
             len(layout.cameras),
-            (
-                layout.start_row
-                + layout.visible_rows
-                + prefs.settings.preview_precache_rows
-            )
-            * layout.columns,
+            (layout.start_row + layout.visible_rows + prefs.settings.preview_precache_rows) * layout.columns,
         )
 
         candidates = list(range(layout.start_index, layout.end_index)) + [
-            i
-            for i in range(p_start_idx, p_end_idx)
-            if i < layout.start_index or i >= layout.end_index
+            i for i in range(p_start_idx, p_end_idx) if i < layout.start_index or i >= layout.end_index
         ]
         precache_keys = {layout.cameras[i].name for i in candidates}
 
@@ -867,14 +851,10 @@ def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
             cam = layout.cameras[idx]
             if cached := ThumbnailManager.cache.get(cam.name):
                 if not (
-                    cached[0] == ThumbnailManager.gen
-                    and cached[2] == _get_camera_state_signature(cam, active_scene)
+                    cached[0] == ThumbnailManager.gen and cached[2] == _get_camera_state_signature(cam, active_scene)
                 ):
                     ThumbnailManager.stale.add(cam.name)
-            elif (
-                cam.name not in ThumbnailManager.pending
-                and not ThumbnailManager.in_preview_render
-            ):
+            elif cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
                 ThumbnailManager.queue_render(cam.name)
 
 
@@ -883,12 +863,7 @@ def _draw_background_panel(layout: GridLayout, colors: dict):
     g_left = layout.origin_x - bg_margin
     g_right = layout.origin_x + layout.grid_width + bg_margin
     g_bottom = layout.origin_y - bg_margin
-    g_top = (
-        layout.origin_y
-        + layout.th * layout.visible_rows
-        + (layout.visible_rows - 1) * layout.gap
-        + bg_margin
-    )
+    g_top = layout.origin_y + layout.th * layout.visible_rows + (layout.visible_rows - 1) * layout.gap + bg_margin
     if sb := _get_scrollbar_layout(layout):
         if layout.grid_alignment == "LEFT":
             g_left = sb.track_left - bg_margin
@@ -907,9 +882,7 @@ def _draw_background_panel(layout: GridLayout, colors: dict):
         (0.0, 0.0, 0.0, 0.4),
     )
 
-    _draw_filled_rounded_rect(
-        g_left, g_bottom, g_right - g_left, g_top - g_bottom, radius, colors["bg_color"]
-    )
+    _draw_filled_rounded_rect(g_left, g_bottom, g_right - g_left, g_top - g_bottom, radius, colors["bg_color"])
 
     _draw_rounded_rect_border(
         g_left,
@@ -930,17 +903,14 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = round(layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap))
-        y = round(
-            layout.origin_y
-            + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
-        )
+        y = round(layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap))
 
         if y > layout.region.height or y + layout.th < 0:
             continue
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
-        is_hovered = i == GridState.hovered_tile
+        is_hovered = i == layout.hovered_tile
 
         if is_active:
             base_col = colors["tile_picked"]
@@ -959,33 +929,23 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
             if is_hovered:
                 _draw_pill(x, y, layout.tw, layout.th, _rgba(colors["text"], 0.04))
 
-            _draw_pill_border(
-                x, y, layout.tw, layout.th, colors["tile_border"], line_width
-            )
+            _draw_pill_border(x, y, layout.tw, layout.th, colors["tile_border"], line_width)
 
             if selected:
-                _draw_pill_border(
-                    x, y, layout.tw, layout.th, colors["border_active"], line_width
-                )
+                _draw_pill_border(x, y, layout.tw, layout.th, colors["border_active"], line_width)
         else:
             radius = layout.radius
             # Draw the background shadow
-            _draw_filled_rounded_rect(
-                x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4)
-            )
+            _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
 
             # Draw the tile background
             _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
 
             # Draw the tile highlight (if hovered)
             if is_hovered:
-                _draw_filled_rounded_rect(
-                    x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04)
-                )
+                _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
 
-            _draw_rounded_rect_border(
-                x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width
-            )
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
 
             if selected:
                 _draw_rounded_rect_border(
@@ -1015,16 +975,14 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap)
-        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (
-            layout.th + layout.gap
-        )
+        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
 
         if y > layout.region.height or y + layout.th < 0:
             continue
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
-        is_hovered = i == GridState.hovered_tile
+        is_hovered = i == layout.hovered_tile
 
         if is_active:
             base_col = colors["tile_picked"]
@@ -1032,28 +990,20 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
             base_col = colors["tile_default"]
 
         # Draw the background shadow
-        _draw_filled_rounded_rect(
-            x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4)
-        )
+        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
 
         # Draw the tile background
         _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
 
         # Draw the tile highlight (if hovered)
         if is_hovered:
-            _draw_filled_rounded_rect(
-                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04)
-            )
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
 
-        _draw_rounded_rect_border(
-            x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width * 0.5
-        )
+        _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width * 0.5)
 
         # Draw the tile border (if selected or active)
         if selected:
-            _draw_rounded_rect_border(
-                x, y, layout.tw, layout.th, radius, colors["border_active"], line_width
-            )
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["border_active"], line_width)
 
             if selected and is_active:
                 if layout.tw - 2 * inset > 0 and layout.th - 2 * inset > 0:
@@ -1072,10 +1022,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
             max_w_no_ell = max_t_w - ellipsis_width
             left, right = len(text) // 2, len(text) // 2 + 1
             while (
-                left > 0
-                and right < len(text)
-                and blf.dimensions(font_id, text[:left] + text[right:])[0]
-                > max_w_no_ell
+                left > 0 and right < len(text) and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
             ):
                 left -= 1
                 right += 1
@@ -1116,16 +1063,14 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap)
-        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (
-            layout.th + layout.gap
-        )
+        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
 
         if y > layout.region.height or y + layout.th < 0:
             continue
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
-        is_hovered = i == GridState.hovered_tile
+        is_hovered = i == layout.hovered_tile
 
         cached = ThumbnailManager.cache.get(cam.name)
         is_valid, is_stale = False, False
@@ -1148,14 +1093,10 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
             ThumbnailManager.stale.add(cam.name)
 
         # Tile Shadow
-        _draw_filled_rounded_rect(
-            x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4)
-        )
+        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
 
         # Tile Background
-        _draw_filled_rounded_rect(
-            x, y, layout.tw, layout.th, radius, colors["tile_default"]
-        )
+        _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, colors["tile_default"])
 
         # Draw Tile Texture
         if cached:
@@ -1163,26 +1104,18 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         # Stale Tile Overlay
         if not is_valid and is_stale:
-            _draw_filled_rounded_rect(
-                x, y, layout.tw, layout.th, radius, _rgba(colors["tile_default"], 0.5)
-            )
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_default"], 0.5))
 
         # Active Tile Overlay
         if is_active:
-            _draw_filled_rounded_rect(
-                x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.25)
-            )
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.25))
 
         # Hovered Tile Overlay
         if is_hovered:
-            _draw_filled_rounded_rect(
-                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04)
-            )
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
 
         # Draw Light Tile Border
-        _draw_rounded_rect_border(
-            x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width
-        )
+        _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
 
         # Selected Tile Border
         if selected or is_active:
@@ -1198,9 +1131,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 )
 
             border_col = colors["border_active"] if selected else colors["tile_picked"]
-            _draw_rounded_rect_border(
-                x, y, layout.tw, layout.th, radius, border_col, line_width
-            )
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
 
         # Tile Camera Name
         if prefs.settings.preview_show_names:
@@ -1211,8 +1142,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 while (
                     left > 0
                     and right < len(text)
-                    and blf.dimensions(font_id, text[:left] + text[right:])[0]
-                    > max_w_no_ell
+                    and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
                 ):
                     left -= 1
                     right += 1
@@ -1257,7 +1187,7 @@ def _draw_scrollbar(layout: GridLayout, colors: dict):
         return
     if sb := _get_scrollbar_layout(layout):
         sb_w = SCROLLBAR_WIDTH * layout.scale
-        is_hovered = GridState.scrollbar_hovered
+        is_hovered = layout.scrollbar_hovered
         if is_hovered:
             sb_w_hover = SCROLLBAR_WIDTH_HOVER * layout.scale
             bar_left = sb.track_left + (sb_w - sb_w_hover) / 2
@@ -1334,24 +1264,35 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
 
     iy = layout.origin_y - layout.info_offset_y
 
-    # Text Background
-    # ih = layout.font_size
-    # pad = 5 * layout.scale
-    # _draw_filled_rounded_rect(
-    #     round(ix - pad),
-    #     round(iy - pad),
-    #     round(iw + pad * 2),
-    #     round(ih + pad * 1.5),
-    #     layout.radius,
-    #     _rgba(colors["bg_color"], 0.5),
-    # )
+    _draw_text_with_shadow(font_id, info_text, ix, iy, colors["info_text"], layout.scale)
 
-    _draw_text_with_shadow(
-        font_id, info_text, ix, iy, colors["info_text"], layout.scale
-    )
+
+def _restart_modal_timer():
+    GridState.restart_pending = False
+    if not GridState.areas:
+        return None
+    wm = bpy.context.window_manager
+    if getattr(wm, "windows", None):
+        window = wm.windows[0]
+        try:
+            with bpy.context.temp_override(window=window):
+                bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
+        except Exception as e:
+            logger.error("Failed to restart modal: %s", str(e))
+    return None
 
 
 def _draw_grid():
+    if not GridState.areas:
+        return
+
+    # Check Heartbeat to ensure modal operator is still alive
+    now = time.monotonic()
+    if now - GridState.modal_last_tick > 1.5:
+        if not getattr(GridState, "restart_pending", False):
+            GridState.restart_pending = True
+            bpy.app.timers.register(_restart_modal_timer, first_interval=0.1)
+
     layout = _compute_grid_layout(bpy.context)
     if not layout:
         return
@@ -1394,47 +1335,36 @@ def is_grid_active(context: Context | None = None) -> bool:
     if context is None:
         return True
     if area := getattr(context, "area", None):
-        return area.as_pointer() == GridState.target_area_pointer
+        return area.as_pointer() in GridState.areas
     return False
-
-
-def _is_grid_key_event(context: Context, event: Event) -> bool:
-    """Return True if a keyboard event targets the grid (mouse is hovering over it)."""
-    if not is_grid_active(context):
-        return False
-    layout = _compute_grid_layout(context)
-    return layout is not None and _is_mouse_in_grid(
-        layout, event.mouse_region_x, event.mouse_region_y
-    )
 
 
 def toggle_grid(context: Context):
     curr_area_ptr = context.area.as_pointer()
 
-    if GridState.handler is not None:
-        try:
-            bpy.types.SpaceView3D.draw_handler_remove(GridState.handler, "WINDOW")
-        except (ValueError, AttributeError):
-            pass
+    if curr_area_ptr in GridState.areas:
+        GridState.areas.pop(curr_area_ptr)
+        if not GridState.areas:
+            if GridState.handler is not None:
+                try:
+                    bpy.types.SpaceView3D.draw_handler_remove(GridState.handler, "WINDOW")
+                except (ValueError, AttributeError):
+                    pass
+            GridState.modal_operator = None
+            ThumbnailManager.invalidate()
+            GridState.reset()
+        redraw_ui("VIEW_3D", area_pointer=curr_area_ptr)
+        return
 
-        target_ptr = GridState.target_area_pointer
-        ThumbnailManager.invalidate()
-        GridState.reset()
-
-        if target_ptr == curr_area_ptr:
-            redraw_ui("VIEW_3D")
-            return
-        redraw_ui("VIEW_3D", area_pointer=target_ptr)
-
-    ThumbnailManager.invalidate()
-    GridState.reset()
-    GridState.target_area_pointer = curr_area_ptr
-    GridState.target_region_pointer = context.region.as_pointer()
-    GridState.handler = bpy.types.SpaceView3D.draw_handler_add(
-        _draw_grid, (), "WINDOW", "POST_PIXEL"
+    GridState.areas[curr_area_ptr] = AreaGridState(
+        target_area_pointer=curr_area_ptr, target_region_pointer=context.region.as_pointer()
     )
-    bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
-    redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+
+    if GridState.handler is None:
+        GridState.handler = bpy.types.SpaceView3D.draw_handler_add(_draw_grid, (), "WINDOW", "POST_PIXEL")
+        bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
+
+    redraw_ui("VIEW_3D", area_pointer=curr_area_ptr)
 
 
 class CAMGRID_OT_toggle_grid(Operator):
@@ -1463,153 +1393,162 @@ class CAMGRID_OT_interactive_grid(Operator):
 
     bl_options = {"INTERNAL"}
 
+    def invoke(self, context, event):
+        # We start an event timer so the operator can actively prove it is alive (Heartbeat)
+        self._timer = context.window_manager.event_timer_add(0.5, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        GridState.modal_operator = self
+        GridState.modal_last_tick = time.monotonic()
+        return {"RUNNING_MODAL"}
+
     def modal(self, context: Context, event: Event):
+        # Allow old zombie operators to gracefully terminate and remove their timers
         if GridState.modal_operator is not self:
+            if hasattr(self, "_timer"):
+                context.window_manager.event_timer_remove(self._timer)
             return {"CANCELLED"}
 
-        area = getattr(context, "area", None)
-        region = getattr(context, "region", None)
-        if (
-            not area
-            or not region
-            or area.as_pointer() != GridState.target_area_pointer
-            or region.type != "WINDOW"
-        ):
+        if not GridState.areas:
+            if hasattr(self, "_timer"):
+                context.window_manager.event_timer_remove(self._timer)
+            return {"CANCELLED"}
+
+        if event.type == "TIMER":
+            GridState.modal_last_tick = time.monotonic()
             return {"PASS_THROUGH"}
 
+        GridState.modal_last_tick = time.monotonic()
+
+        # Dynamically discover which viewport the mouse is currently moving within
+        area, region = _get_area_and_region_under_mouse(context, event)
+
+        if not area or not region or area.as_pointer() not in GridState.areas:
+            if event.value == "RELEASE" and GridState.drag_state != _DragState.IDLE:
+                GridState.drag_state = _DragState.IDLE
+                GridState.drag_tile = -1
+                GridState.drag_last_tile = -1
+            return {"PASS_THROUGH"}
+
+        state = GridState.areas[area.as_pointer()]
         event_type = event.type
+
+        mx = event.mouse_x - region.x
+        my = event.mouse_y - region.y
 
         match event_type:
             case "ESC" if event.value == "PRESS":
                 prefs = context.preferences.addons.get(__package__).preferences
                 if prefs.settings.close_on_esc:
-                    if is_grid_active(context):
-                        toggle_grid(context)
-                    return {"CANCELLED"}
+                    layout = _compute_grid_layout(context, area=area, region=region)
+                    if layout and _is_mouse_in_grid(layout, mx, my):
+                        with context.temp_override(window=context.window, area=area, region=region):
+                            toggle_grid(context)
+                        return {"CANCELLED"}
                 return {"PASS_THROUGH"}
-
             case "MOUSEMOVE":
-                return self._handle_mousemove(context, event)
-
-            # Handle MOUSE PRESS and RELEASE using pattern guards
+                return self._handle_mousemove(context, event, state, area, region, mx, my)
             case "LEFTMOUSE" | "RIGHTMOUSE" if event.value == "PRESS":
-                return self._handle_mouse_press(context, event, event_type)
-
+                return self._handle_mouse_press(context, event, event_type, state, area, region, mx, my)
             case "LEFTMOUSE" | "RIGHTMOUSE" if event.value == "RELEASE":
-                return self._handle_mouse_release(context, event, event_type)
-
+                return self._handle_mouse_release(context, event, event_type, state, area, region, mx, my)
             case "WHEELUPMOUSE" | "WHEELDOWNMOUSE":
-                return self._handle_wheel(context, event, event_type)
-
-            case "LEFT_ARROW" | "RIGHT_ARROW" | "UP_ARROW" | "DOWN_ARROW" if (
-                event.value == "PRESS"
-            ):
-                return self._handle_arrow(context, event, event_type)
-
-            case "HOME" if event.value == "PRESS" and _is_grid_key_event(
-                context, event
-            ):
-                try:
-                    bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
-                except Exception:
-                    pass
-                return {"RUNNING_MODAL"}
-
-            case "F5" if event.value == "PRESS" and _is_grid_key_event(context, event):
-                prefs = context.preferences.addons.get(__package__).preferences
-                if prefs.settings.display_type == "THUMBNAILS":
+                return self._handle_wheel(context, event, event_type, state, area, region, mx, my)
+            case "LEFT_ARROW" | "RIGHT_ARROW" | "UP_ARROW" | "DOWN_ARROW" if event.value == "PRESS":
+                return self._handle_arrow(context, event, event_type, state, area, region, mx, my)
+            case "HOME" if event.value == "PRESS":
+                layout = _compute_grid_layout(context, area=area, region=region)
+                if layout and _is_mouse_in_grid(layout, mx, my):
                     try:
-                        bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
+                        with context.temp_override(window=context.window, area=area, region=region):
+                            bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
                     except Exception:
                         pass
-                return {"RUNNING_MODAL"}
+                    return {"RUNNING_MODAL"}
+                return {"PASS_THROUGH"}
 
+            case "F5" if event.value == "PRESS":
+                layout = _compute_grid_layout(context, area=area, region=region)
+                if layout and _is_mouse_in_grid(layout, mx, my):
+                    prefs = context.preferences.addons.get(__package__).preferences
+                    if prefs.settings.display_type == "THUMBNAILS":
+                        try:
+                            bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
+                        except Exception:
+                            pass
+                    return {"RUNNING_MODAL"}
+                return {"PASS_THROUGH"}
             case _:
                 return {"PASS_THROUGH"}
 
-    def _update_scrollbar_scroll(
-        self, layout: GridLayout, sb: ScrollbarLayout, my: float
-    ):
+    def _update_scrollbar_scroll(self, layout: GridLayout, sb: ScrollbarLayout, my: float, state: AreaGridState):
         travel = sb.track_h - sb.thumb_h
         if travel <= 0:
             return
         t = max(0.0, min(1.0, (my - sb.track_bottom - sb.thumb_h / 2) / travel))
         new_row = round(t * sb.max_scroll)
-        if GridState.current_start_row != new_row:
-            GridState.current_start_row = new_row
-            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+        if state.current_start_row != new_row:
+            state.current_start_row = new_row
+            redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
 
-    def _handle_mousemove(self, context: Context, event: Event):
-        layout = _compute_grid_layout(context)
+    def _handle_mousemove(
+        self, context: Context, event: Event, state: AreaGridState, area, region, mx: float, my: float
+    ):
+        layout = _compute_grid_layout(context, area=area, region=region)
         if layout:
-            in_grid = _is_mouse_in_grid(
-                layout, event.mouse_region_x, event.mouse_region_y
-            )
-            hovered = _get_tile_at_mouse(
-                layout, event.mouse_region_x, event.mouse_region_y
-            )
+            in_grid = _is_mouse_in_grid(layout, mx, my)
+            hovered = _get_tile_at_mouse(layout, mx, my)
 
-            mx, my = event.mouse_region_x, event.mouse_region_y
             sb_hovered = False
             if GridState.drag_state == _DragState.SCROLLBAR_DRAGGING:
                 sb_hovered = True
             elif sb := _get_scrollbar_layout(layout):
-                if (
-                    sb.hit_left <= mx <= sb.hit_right
-                    and sb.track_bottom <= my <= sb.track_top
-                ):
+                if sb.hit_left <= mx <= sb.hit_right and sb.track_bottom <= my <= sb.track_top:
                     sb_hovered = True
 
             needs_redraw = False
-            if in_grid != GridState.mouse_in_grid:
-                GridState.mouse_in_grid = in_grid
+            if in_grid != state.mouse_in_grid:
+                state.mouse_in_grid = in_grid
                 needs_redraw = True
 
-            if hovered != GridState.hovered_tile:
-                GridState.hovered_tile = hovered
+            if hovered != state.hovered_tile:
+                state.hovered_tile = hovered
                 needs_redraw = True
 
-            if sb_hovered != GridState.scrollbar_hovered:
-                GridState.scrollbar_hovered = sb_hovered
+            if sb_hovered != state.scrollbar_hovered:
+                state.scrollbar_hovered = sb_hovered
                 needs_redraw = True
 
             if needs_redraw:
-                redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
-        elif (
-            GridState.mouse_in_grid
-            or GridState.hovered_tile is not None
-            or GridState.scrollbar_hovered
-        ):
-            GridState.mouse_in_grid = False
-            GridState.hovered_tile = None
+                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
+        elif state.mouse_in_grid or state.hovered_tile is not None or state.scrollbar_hovered:
+            state.mouse_in_grid = False
+            state.hovered_tile = None
             if GridState.drag_state != _DragState.SCROLLBAR_DRAGGING:
-                GridState.scrollbar_hovered = False
-            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                state.scrollbar_hovered = False
+            redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
 
         if GridState.drag_state == _DragState.IDLE:
             return {"PASS_THROUGH"}
 
-        mx, my = event.mouse_region_x, event.mouse_region_y
-
         match GridState.drag_state:
             case _DragState.SCROLLBAR_DRAGGING if layout:
                 if sb := _get_scrollbar_layout(layout):
-                    self._update_scrollbar_scroll(layout, sb, my)
+                    self._update_scrollbar_scroll(layout, sb, my, state)
             case _DragState.LMB_PRESSED if layout:
-                if (
-                    t := _get_tile_at_mouse(layout, mx, my)
-                ) is not None and t != GridState.drag_tile:
+                if (t := _get_tile_at_mouse(layout, mx, my)) is not None and t != GridState.drag_tile:
                     GridState.drag_state = _DragState.LMB_DRAGGING
                     GridState.drag_last_tile = t
-                    _action_switch_camera(layout, t, context)
+                    _action_switch_camera(layout, t, context, area, region)
             case _DragState.LMB_DRAGGING if layout:
                 GridState.drag_last_tile = _drag_tile_action(
-                    layout, mx, my, GridState.drag_last_tile, _action_switch_camera
+                    layout,
+                    mx,
+                    my,
+                    GridState.drag_last_tile,
+                    lambda cam_idx, idx: _action_switch_camera(cam_idx, idx, context, area, region),
                 )
             case _DragState.RMB_PRESSED if layout:
-                if (
-                    t := _get_tile_at_mouse(layout, mx, my)
-                ) is not None and t != GridState.drag_tile:
+                if (t := _get_tile_at_mouse(layout, mx, my)) is not None and t != GridState.drag_tile:
                     GridState.drag_state = _DragState.RMB_DRAGGING
                     GridState.drag_last_tile = t
                     _action_select_camera(layout, t)
@@ -1626,34 +1565,30 @@ class CAMGRID_OT_interactive_grid(Operator):
             bottom_edge = layout.origin_y
             top_edge = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
             now = time.monotonic()
-            if (
-                my < bottom_edge
-                and GridState.current_start_row > 0
-                and now - GridState.drag_last_scroll_time > 0.12
-            ):
-                GridState.current_start_row -= 1
+            if my < bottom_edge and state.current_start_row > 0 and now - GridState.drag_last_scroll_time > 0.12:
+                state.current_start_row -= 1
                 GridState.drag_last_scroll_time = now
-                redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
             elif (
                 my > top_edge
-                and GridState.current_start_row
-                < (layout.total_rows - layout.visible_rows)
+                and state.current_start_row < (layout.total_rows - layout.visible_rows)
                 and now - GridState.drag_last_scroll_time > 0.12
             ):
-                GridState.current_start_row += 1
+                state.current_start_row += 1
                 GridState.drag_last_scroll_time = now
-                redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
 
         return {"RUNNING_MODAL"}
 
-    def _handle_mouse_press(self, context: Context, event: Event, event_type: str):
+    def _handle_mouse_press(
+        self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
+    ):
         if GridState.drag_state != _DragState.IDLE:
             return {"RUNNING_MODAL"}
-        layout = _compute_grid_layout(context)
+        layout = _compute_grid_layout(context, area=area, region=region)
         if not layout:
             return {"PASS_THROUGH"}
 
-        mx, my = event.mouse_region_x, event.mouse_region_y
         if sb := _get_scrollbar_layout(layout):
             if (
                 event_type == "LEFTMOUSE"
@@ -1661,7 +1596,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 and sb.track_bottom <= my <= sb.track_top
             ):
                 GridState.drag_state = _DragState.SCROLLBAR_DRAGGING
-                self._update_scrollbar_scroll(layout, sb, my)
+                self._update_scrollbar_scroll(layout, sb, my, state)
                 return {"RUNNING_MODAL"}
 
         tile_index = _get_tile_at_mouse(layout, mx, my)
@@ -1680,7 +1615,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                         context.view_layer.objects.active = cam
                 except RuntimeError:
                     pass
-                redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
                 return {"RUNNING_MODAL"}
 
             GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = (
@@ -1690,21 +1625,17 @@ class CAMGRID_OT_interactive_grid(Operator):
             )
             if cam != layout.active_camera:
                 context.scene.camera = cam
-            _apply_on_switch_action(context)
+            _apply_on_switch_action(context, area, region)
 
-            # Auto-Reload Thumbnail (Temporarily Disabled)
-            # if context.preferences.addons.get(__package__).preferences.settings.display_type == "THUMBNAILS":
-            #     if cam.name in ThumbnailManager.stale:
-            #         ThumbnailManager.stale.discard(cam.name)
-            #         if cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
-            #             ThumbnailManager.queue_render(cam.name)
             return {"RUNNING_MODAL"}
 
         if _is_mouse_in_grid(layout, mx, my):
             return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
 
-    def _handle_mouse_release(self, context: Context, event: Event, event_type: str):
+    def _handle_mouse_release(
+        self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
+    ):
         if (
             GridState.drag_state
             in (
@@ -1713,10 +1644,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 _DragState.SCROLLBAR_DRAGGING,
             )
             and event_type == "LEFTMOUSE"
-        ) or (
-            GridState.drag_state in (_DragState.RMB_PRESSED, _DragState.RMB_DRAGGING)
-            and event_type == "RIGHTMOUSE"
-        ):
+        ) or (GridState.drag_state in (_DragState.RMB_PRESSED, _DragState.RMB_DRAGGING) and event_type == "RIGHTMOUSE"):
             GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = (
                 _DragState.IDLE,
                 -1,
@@ -1725,13 +1653,13 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
 
-    def _handle_wheel(self, context: Context, event: Event, event_type: str):
+    def _handle_wheel(
+        self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
+    ):
         if GridState.drag_state != _DragState.IDLE:
             return {"RUNNING_MODAL"}
-        layout = _compute_grid_layout(context)
-        if not layout or not _is_mouse_in_grid(
-            layout, event.mouse_region_x, event.mouse_region_y
-        ):
+        layout = _compute_grid_layout(context, area=area, region=region)
+        if not layout or not _is_mouse_in_grid(layout, mx, my):
             return {"PASS_THROUGH"}
 
         prefs = context.preferences.addons.get(__package__).preferences
@@ -1739,39 +1667,32 @@ class CAMGRID_OT_interactive_grid(Operator):
         if event.ctrl:
             delta = 8 if event_type == "WHEELUPMOUSE" else -8
             if prefs.settings.display_type == "THUMBNAILS":
-                prefs.settings.preview_size = max(
-                    64, min(512, prefs.settings.preview_size + delta)
-                )
+                prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
             elif prefs.settings.display_type == "DOTS":
                 return {"RUNNING_MODAL"}
             else:
-                prefs.settings.tile_size = max(
-                    60, min(512, prefs.settings.tile_size + delta)
-                )
-            redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
+            redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
             return {"RUNNING_MODAL"}
 
         should_scroll = event.shift != (prefs.settings.wheel_mode == "SCROLL")
 
         if sb := _get_scrollbar_layout(layout):
-            if (
-                sb.hit_left <= event.mouse_region_x <= sb.hit_right
-                and sb.track_bottom <= event.mouse_region_y <= sb.track_top
-            ):
+            if sb.hit_left <= mx <= sb.hit_right and sb.track_bottom <= my <= sb.track_top:
                 should_scroll = True
 
         if should_scroll:
             if (max_scroll := layout.total_rows - layout.effective_max_rows) > 0:
-                old_row = GridState.current_start_row
-                GridState.current_start_row = max(
+                old_row = state.current_start_row
+                state.current_start_row = max(
                     0,
                     min(
                         old_row + (-1 if event_type == "WHEELDOWNMOUSE" else 1),
                         max_scroll,
                     ),
                 )
-                if GridState.current_start_row != old_row:
-                    redraw_ui("VIEW_3D", area_pointer=GridState.target_area_pointer)
+                if state.current_start_row != old_row:
+                    redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
             return {"RUNNING_MODAL"}
 
         delta = 1 if event_type == "WHEELUPMOUSE" else -1
@@ -1782,16 +1703,16 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_idx != layout.active_index and 0 <= new_idx < layout.total_cameras:
             context.scene.camera = layout.cameras[new_idx]
-            _apply_on_switch_action(context)
+            _apply_on_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
-    def _handle_arrow(self, context: Context, event: Event, event_type: str):
+    def _handle_arrow(
+        self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
+    ):
         if GridState.drag_state != _DragState.IDLE:
             return {"RUNNING_MODAL"}
-        layout = _compute_grid_layout(context)
-        if not layout or not _is_mouse_in_grid(
-            layout, event.mouse_region_x, event.mouse_region_y
-        ):
+        layout = _compute_grid_layout(context, area=area, region=region)
+        if not layout or not _is_mouse_in_grid(layout, mx, my):
             return {"PASS_THROUGH"}
 
         idx = layout.active_index
@@ -1801,17 +1722,9 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         match event_type:
             case "LEFT_ARROW":
-                new_idx = (
-                    (idx - 1 + tot) % tot
-                    if prefs.settings.cycle_cameras
-                    else max(0, idx - 1)
-                )
+                new_idx = (idx - 1 + tot) % tot if prefs.settings.cycle_cameras else max(0, idx - 1)
             case "RIGHT_ARROW":
-                new_idx = (
-                    (idx + 1) % tot
-                    if prefs.settings.cycle_cameras
-                    else min(tot - 1, idx + 1)
-                )
+                new_idx = (idx + 1) % tot if prefs.settings.cycle_cameras else min(tot - 1, idx + 1)
             case "UP_ARROW":
                 new_idx = idx + cols if idx + cols < tot else idx
             case "DOWN_ARROW":
@@ -1819,14 +1732,7 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_idx != idx and 0 <= new_idx < tot:
             context.scene.camera = layout.cameras[new_idx]
-            _apply_on_switch_action(context)
-        return {"RUNNING_MODAL"}
-
-    def invoke(self, context, event):
-        if GridState.modal_operator is not None:
-            return {"CANCELLED"}
-        context.window_manager.modal_handler_add(self)
-        GridState.modal_operator = self
+            _apply_on_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
 
@@ -1869,11 +1775,7 @@ class CAMGRID_OT_frame_camera(Operator):
             except Exception:
                 pass
 
-        layout = (
-            _compute_grid_layout(context, area=context.area, region=region)
-            if is_grid_active(context)
-            else None
-        )
+        layout = _compute_grid_layout(context, area=context.area, region=region) if is_grid_active(context) else None
         scale = layout.scale if layout else _get_ui_scale()
         grid_top = (
             (
@@ -1891,10 +1793,7 @@ class CAMGRID_OT_frame_camera(Operator):
         left_overlap, right_overlap = _get_left_right_overlap(context.area)
         avail_w = max(
             1.0,
-            float(region.width)
-            - left_overlap
-            - right_overlap
-            - prefs.settings.frame_horizontal_padding * scale,
+            float(region.width) - left_overlap - right_overlap - prefs.settings.frame_horizontal_padding * scale,
         )
         avail_vh = max(1.0, (1.0 - grid_frac) * float(region.height) - top_margin)
 
@@ -1908,11 +1807,7 @@ class CAMGRID_OT_frame_camera(Operator):
         zf_base = max(0.01, (sqrt2_100 * z_base + 1.0) ** 2)
 
         r = context.scene.render
-        c_asp = (
-            (r.resolution_x * r.pixel_aspect_x) / (r.resolution_y * r.pixel_aspect_y)
-            if r.resolution_y > 0
-            else 1.0
-        )
+        c_asp = (r.resolution_x * r.pixel_aspect_x) / (r.resolution_y * r.pixel_aspect_y) if r.resolution_y > 0 else 1.0
         v_asp = float(region.width) / float(region.height)
 
         fw, fh = (
@@ -1922,19 +1817,11 @@ class CAMGRID_OT_frame_camera(Operator):
         )
         s = min(avail_w / fw, avail_vh / fh, 1.0)
 
-        rv3d.view_camera_zoom = (
-            max(-29.9, (1.0 / sqrt2_100) * (math.sqrt(zf_base * s) - 1.0))
-            if s < 1.0
-            else z_base
-        )
+        rv3d.view_camera_zoom = max(-29.9, (1.0 / sqrt2_100) * (math.sqrt(zf_base * s) - 1.0)) if s < 1.0 else z_base
         zf_final = (sqrt2_100 * rv3d.view_camera_zoom + 1.0) ** 2
 
-        rv3d.view_camera_offset[0] = ((right_overlap - left_overlap) / 2.0) / (
-            zf_final * float(region.width)
-        )
-        rv3d.view_camera_offset[1] = -((grid_top - top_margin) / 2.0) / (
-            zf_final * float(region.height)
-        )
+        rv3d.view_camera_offset[0] = ((right_overlap - left_overlap) / 2.0) / (zf_final * float(region.width))
+        rv3d.view_camera_offset[1] = -((grid_top - top_margin) / 2.0) / (zf_final * float(region.height))
         return {"FINISHED"}
 
 

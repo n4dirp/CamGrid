@@ -60,7 +60,7 @@ class CAMGRID_PT_grid_popup(Panel):
 
             body.separator()
             col = body.column(align=True)
-            col.label(text="Footer Text")
+            col.label(text="Info Text")
             row = col.row(align=True)
             row.prop(prefs.settings, "show_active_camera_name", text="Name")
             row.prop(prefs.settings, "show_camera_settings", text="Lens")
