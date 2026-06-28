@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "camera_grid"
-version = "1.1.0"
+version = "1.2.0"
 name = "Camera Grid"
 tagline = "Viewport camera grid overlay for quick camera switching"
 maintainer = "Nadir Perazzo"
