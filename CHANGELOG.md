@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.0] - 2026-06-27
+
+### Added
+- Support multiple simultaneous viewports in Camera Grid
+
 ## [1.1.0] - 2026-06-17
 
 ### Added
