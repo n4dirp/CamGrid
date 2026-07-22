@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-07-21
+
+### Fixed
+- Fixed the camera grid panel interaction in new windows
+
 ## [1.2.0] - 2026-06-27
 
 ### Added
