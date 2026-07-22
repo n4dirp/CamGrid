@@ -138,13 +138,14 @@ class AreaGridState:
     mouse_in_grid: bool = False
     hovered_tile: int | None = None
     scrollbar_hovered: bool = False
+    enabled: bool = True
 
 
 class GridState:
     """Encapsulates all interactive and UI state for the camera grid."""
 
     handler: object | None = None
-    modal_operator: Operator | None = None
+    window_operators: dict[int, Operator] = {}
 
     # Track states for each active 3D Viewport area pointer
     areas: dict[int, AreaGridState] = {}
@@ -155,22 +156,16 @@ class GridState:
     drag_last_scroll_time: float = 0.0
     drag_select_value: bool = False
 
-    # Heartbeat trackers to restart modal operator if Blender kills it (e.g. Workspace switch)
-    modal_last_tick: float = 0.0
-    restart_pending: bool = False
-
     @classmethod
     def reset(cls):
         cls.handler = None
-        cls.modal_operator = None
+        cls.window_operators.clear()
         cls.areas.clear()
         cls.drag_state = _DragState.IDLE
         cls.drag_tile = -1
         cls.drag_last_tile = -1
         cls.drag_last_scroll_time = 0.0
         cls.drag_select_value = False
-        cls.modal_last_tick = 0.0
-        cls.restart_pending = False
 
 
 class ThumbnailManager:
@@ -328,7 +323,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         return None
 
     state = GridState.areas.get(area_ptr)
-    if not state:
+    if not state or not state.enabled:
         return None
 
     if state.target_region_pointer:
@@ -1267,31 +1262,38 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
     _draw_text_with_shadow(font_id, info_text, ix, iy, colors["info_text"], layout.scale)
 
 
-def _restart_modal_timer():
-    GridState.restart_pending = False
-    if not GridState.areas:
-        return None
-    wm = bpy.context.window_manager
-    if getattr(wm, "windows", None):
-        window = wm.windows[0]
-        try:
-            with bpy.context.temp_override(window=window):
-                bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
-        except Exception as e:
-            logger.error("Failed to restart modal: %s", str(e))
-    return None
+def _ensure_area_states():
+    """Register AreaGridState for any VIEW_3D area that lacks one."""
+    if not GridState.areas or not any(s.enabled for s in GridState.areas.values()):
+        return
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            ptr = area.as_pointer()
+            if ptr in GridState.areas:
+                continue
+            region = next((r for r in area.regions if r.type == "WINDOW"), None)
+            if not region:
+                continue
+            GridState.areas[ptr] = AreaGridState(
+                target_area_pointer=ptr,
+                target_region_pointer=region.as_pointer(),
+                enabled=False,
+            )
 
 
 def _draw_grid():
-    if not GridState.areas:
+    _ensure_area_states()
+    if not GridState.areas or not any(s.enabled for s in GridState.areas.values()):
         return
 
-    # Check Heartbeat to ensure modal operator is still alive
-    now = time.monotonic()
-    if now - GridState.modal_last_tick > 1.5:
-        if not getattr(GridState, "restart_pending", False):
-            GridState.restart_pending = True
-            bpy.app.timers.register(_restart_modal_timer, first_interval=0.1)
+    # Auto-spawn modal operator for any window that lacks one
+    if (win := bpy.context.window) and win.as_pointer() not in GridState.window_operators:
+        try:
+            bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
+        except Exception:
+            pass
 
     layout = _compute_grid_layout(bpy.context)
     if not layout:
@@ -1335,34 +1337,54 @@ def is_grid_active(context: Context | None = None) -> bool:
     if context is None:
         return True
     if area := getattr(context, "area", None):
-        return area.as_pointer() in GridState.areas
+        state = GridState.areas.get(area.as_pointer())
+        return state is not None and state.enabled
     return False
+
+
+def _full_cleanup():
+    """Remove draw handler, cancel all operators, and reset state."""
+    if GridState.handler is not None:
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(GridState.handler, "WINDOW")
+        except (ValueError, AttributeError):
+            pass
+    ThumbnailManager.invalidate()
+    GridState.reset()
 
 
 def toggle_grid(context: Context):
     curr_area_ptr = context.area.as_pointer()
+    state = GridState.areas.get(curr_area_ptr)
 
-    if curr_area_ptr in GridState.areas:
-        GridState.areas.pop(curr_area_ptr)
-        if not GridState.areas:
-            if GridState.handler is not None:
-                try:
-                    bpy.types.SpaceView3D.draw_handler_remove(GridState.handler, "WINDOW")
-                except (ValueError, AttributeError):
-                    pass
-            GridState.modal_operator = None
-            ThumbnailManager.invalidate()
-            GridState.reset()
+    if state and state.enabled:
+        state.enabled = False
+        if not any(s.enabled for s in GridState.areas.values()):
+            _full_cleanup()
         redraw_ui("VIEW_3D", area_pointer=curr_area_ptr)
         return
 
-    GridState.areas[curr_area_ptr] = AreaGridState(
-        target_area_pointer=curr_area_ptr, target_region_pointer=context.region.as_pointer()
-    )
+    # Ensure all areas are registered but enable this one
+    _ensure_area_states()
+
+    state = GridState.areas.get(curr_area_ptr)
+    if state:
+        state.enabled = True
+    else:
+        GridState.areas[curr_area_ptr] = AreaGridState(
+            target_area_pointer=curr_area_ptr,
+            target_region_pointer=context.region.as_pointer(),
+            enabled=True,
+        )
 
     if GridState.handler is None:
         GridState.handler = bpy.types.SpaceView3D.draw_handler_add(_draw_grid, (), "WINDOW", "POST_PIXEL")
-        bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
+
+    if context.window.as_pointer() not in GridState.window_operators:
+        try:
+            bpy.ops.camgrid.interactive_grid("INVOKE_DEFAULT")
+        except Exception:
+            pass
 
     redraw_ui("VIEW_3D", area_pointer=curr_area_ptr)
 
@@ -1394,30 +1416,27 @@ class CAMGRID_OT_interactive_grid(Operator):
     bl_options = {"INTERNAL"}
 
     def invoke(self, context, event):
-        # We start an event timer so the operator can actively prove it is alive (Heartbeat)
         self._timer = context.window_manager.event_timer_add(0.5, window=context.window)
         context.window_manager.modal_handler_add(self)
-        GridState.modal_operator = self
-        GridState.modal_last_tick = time.monotonic()
+        self._target_window_ptr = context.window.as_pointer()
+        GridState.window_operators[self._target_window_ptr] = self
         return {"RUNNING_MODAL"}
 
     def modal(self, context: Context, event: Event):
-        # Allow old zombie operators to gracefully terminate and remove their timers
-        if GridState.modal_operator is not self:
+        win_ptr = context.window.as_pointer()
+        if GridState.window_operators.get(win_ptr) is not self:
             if hasattr(self, "_timer"):
                 context.window_manager.event_timer_remove(self._timer)
             return {"CANCELLED"}
 
-        if not GridState.areas:
+        if not GridState.areas or not any(s.enabled for s in GridState.areas.values()):
+            GridState.window_operators.pop(win_ptr, None)
             if hasattr(self, "_timer"):
                 context.window_manager.event_timer_remove(self._timer)
             return {"CANCELLED"}
 
         if event.type == "TIMER":
-            GridState.modal_last_tick = time.monotonic()
             return {"PASS_THROUGH"}
-
-        GridState.modal_last_tick = time.monotonic()
 
         # Dynamically discover which viewport the mouse is currently moving within
         area, region = _get_area_and_region_under_mouse(context, event)
