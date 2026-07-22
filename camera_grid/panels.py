@@ -17,7 +17,7 @@ class CAMGRID_PT_grid_popup(Panel):
         prefs = context.preferences.addons.get(__package__).preferences
         props = context.scene.camgrid_props
 
-        cam_header, cam_body = layout.panel("CAMGRID_PT_camera_grid", default_closed=True)
+        cam_header, cam_body = layout.panel("CAMGRID_PT_camera_grid", default_closed=False)
         cam_header.label(text="Camera Grid")
 
         if cam_body:
