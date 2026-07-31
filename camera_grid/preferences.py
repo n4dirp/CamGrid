@@ -84,9 +84,9 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Display Type",
         description="Camera grid tile display mode",
         items=[
-            ("DOTS", "Dots", "Show minimal dots without labels", "SHORTDISPLAY", 0),
-            ("TILES", "Labels", "Show simple colored tiles", "LONGDISPLAY", 1),
-            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 2),
+            ("DOTS", "Dots", "Show minimal dots without labels"),
+            ("TILES", "Labels", "Show simple colored tiles"),
+            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails"),
         ],
         default="TILES",
         update=_update_display_type,
@@ -196,12 +196,12 @@ class CAMGRID_PG_settings(PropertyGroup):
     )
     filter_camera_collections: BoolProperty(
         name="Filter Camera Collections",
-        description="Only show collections containing cameras in the source collection picker",
+        description="Only show collections containing cameras",
         default=True,
     )
     show_hidden: BoolProperty(
         name="Show Hidden",
-        description="Include cameras that are hidden in the viewport in the grid",
+        description="Display hidden cameras in the grid",
         default=False,
     )
     show_camera_settings: BoolProperty(
@@ -275,7 +275,16 @@ class CAMGRID_PG_settings(PropertyGroup):
     close_on_esc: BoolProperty(
         name="Close Grid with ESC",
         description="Press ESC to close the camera grid overlay",
-        default=True,
+        default=False,
+    )
+    panel_location: EnumProperty(
+        name="Panel Location",
+        description="Where to show the camera grid controls",
+        items=[
+            ("HEADER", "Header", "Show controls in the 3D viewport topbar"),
+            ("UI", "Sidebar", "Show controls in the right sidebar"),
+        ],
+        default="HEADER",
     )
 
 
@@ -290,8 +299,7 @@ def _poll_collection_with_cameras(self, obj):
 class CAMGRID_PG_scene(PropertyGroup):
     source_collection: PointerProperty(
         name="Source Collection",
-        description="Collection containing cameras to display in the grid.\n"
-        "If empty, all cameras in the scene are shown",
+        description="Filter grid cameras by collection",
         type=bpy.types.Collection,
         poll=_poll_collection_with_cameras,
     )
@@ -325,6 +333,34 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
+        layout.label(text="Panel")
+        layout.row().prop(self.settings, "panel_location", expand=True)
+
+        layout.separator()
+        layout.label(text="Global Shortcuts")
+
+        wm = context.window_manager
+        kc = wm.keyconfigs.user
+        from . import addon_keymaps
+
+        needs_restore = False
+        for km_addon, kmi_addon in addon_keymaps:
+            km = kc.keymaps.get(km_addon.name)
+            if not km:
+                continue
+            kmi = km.keymap_items.get(kmi_addon.idname)
+            if kmi:
+                from rna_keymap_ui import draw_kmi
+
+                draw_kmi([], kc, km, kmi, layout, 0)
+            else:
+                needs_restore = True
+        if needs_restore:
+            layout.operator("camgrid.restore_grid_keymap", text="Restore Default Shortcuts")
+
+        layout.prop(self.settings, "close_on_esc", text="Exit with Escape Key")
+
+        layout.separator()
         col = layout.column(align=True)
         col.label(text="Thumbnails")
         col.prop(self.settings, "preview_cache_size", text="Cache Size")

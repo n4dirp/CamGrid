@@ -1342,6 +1342,17 @@ def is_grid_active(context: Context | None = None) -> bool:
     return False
 
 
+def _cancel_interaction(context):
+    """Cancel the interactive grid modal operator for the given window immediately."""
+    win_ptr = context.window.as_pointer()
+    op = GridState.window_operators.pop(win_ptr, None)
+    if op and hasattr(op, "_timer"):
+        try:
+            context.window_manager.event_timer_remove(op._timer)
+        except Exception:
+            pass
+
+
 def _full_cleanup():
     """Remove draw handler, cancel all operators, and reset state."""
     if GridState.handler is not None:
@@ -1360,6 +1371,7 @@ def toggle_grid(context: Context):
     if state and state.enabled:
         state.enabled = False
         if not any(s.enabled for s in GridState.areas.values()):
+            _cancel_interaction(context)
             _full_cleanup()
         redraw_ui("VIEW_3D", area_pointer=curr_area_ptr)
         return
@@ -1399,7 +1411,6 @@ class CAMGRID_OT_toggle_grid(Operator):
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
         "Ctrl+Wheel - Resize tiles.\n"
-        "HOME - Frame camera.\n"
         "F5 - Refresh previews."
     )
     bl_options = {"INTERNAL"}
@@ -1464,26 +1475,21 @@ class CAMGRID_OT_interactive_grid(Operator):
                             toggle_grid(context)
                         return {"CANCELLED"}
                 return {"PASS_THROUGH"}
+
             case "MOUSEMOVE":
                 return self._handle_mousemove(context, event, state, area, region, mx, my)
+
             case "LEFTMOUSE" | "RIGHTMOUSE" if event.value == "PRESS":
                 return self._handle_mouse_press(context, event, event_type, state, area, region, mx, my)
+
             case "LEFTMOUSE" | "RIGHTMOUSE" if event.value == "RELEASE":
                 return self._handle_mouse_release(context, event, event_type, state, area, region, mx, my)
+
             case "WHEELUPMOUSE" | "WHEELDOWNMOUSE":
                 return self._handle_wheel(context, event, event_type, state, area, region, mx, my)
+
             case "LEFT_ARROW" | "RIGHT_ARROW" | "UP_ARROW" | "DOWN_ARROW" if event.value == "PRESS":
                 return self._handle_arrow(context, event, event_type, state, area, region, mx, my)
-            case "HOME" if event.value == "PRESS":
-                layout = _compute_grid_layout(context, area=area, region=region)
-                if layout and _is_mouse_in_grid(layout, mx, my):
-                    try:
-                        with context.temp_override(window=context.window, area=area, region=region):
-                            bpy.ops.camgrid.frame_camera("INVOKE_DEFAULT")
-                    except Exception:
-                        pass
-                    return {"RUNNING_MODAL"}
-                return {"PASS_THROUGH"}
 
             case "F5" if event.value == "PRESS":
                 layout = _compute_grid_layout(context, area=area, region=region)
@@ -1844,11 +1850,46 @@ class CAMGRID_OT_frame_camera(Operator):
         return {"FINISHED"}
 
 
+class CAMGRID_OT_restore_grid_keymap(Operator):
+    """Restore the default Camera Grid keymap shortcuts in the user keyconfig."""
+
+    bl_idname = "camgrid.restore_grid_keymap"
+    bl_label = "Restore Default Shortcuts"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        wm = context.window_manager
+        kc = wm.keyconfigs.user
+        if not kc:
+            return False
+        km = kc.keymaps.get("3D View")
+        if km:
+            return (
+                km.keymap_items.get("camgrid.toggle_grid") is None
+                or km.keymap_items.get("camgrid.frame_camera") is None
+            )
+        return True
+
+    def execute(self, context):
+        wm = context.window_manager
+        kc = wm.keyconfigs.user
+        km = kc.keymaps.get("3D View")
+        if not km:
+            km = kc.keymaps.new(name="3D View", space_type="VIEW_3D")
+        if km.keymap_items.get("camgrid.toggle_grid") is None:
+            km.keymap_items.new("camgrid.toggle_grid", type="C", value="PRESS", alt=True, shift=True)
+        if km.keymap_items.get("camgrid.frame_camera") is None:
+            km.keymap_items.new("camgrid.frame_camera", type="HOME", value="PRESS", shift=True)
+        return {"FINISHED"}
+
+
 classes = (
     CAMGRID_OT_toggle_grid,
     CAMGRID_OT_interactive_grid,
     CAMGRID_OT_refresh_previews,
     CAMGRID_OT_frame_camera,
+    CAMGRID_OT_restore_grid_keymap,
 )
 
 
