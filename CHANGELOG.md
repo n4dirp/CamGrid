@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.0] - 2026-07-30
+
+### Added
+- Global keyboard shortcuts for Camera Grid (Toogle panel: Shift+Alt+C, Frame Camera: Shift+Home)
+- Added a "Panel Location" option to place grid controls in the 3D viewport header or the right sidebar
+
 ## [1.2.1] - 2026-07-21
 
 ### Fixed
