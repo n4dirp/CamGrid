@@ -343,6 +343,8 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         kc = wm.keyconfigs.user
         from . import addon_keymaps
 
+        col = layout.column()
+        col.use_property_split = False
         needs_restore = False
         for km_addon, kmi_addon in addon_keymaps:
             km = kc.keymaps.get(km_addon.name)
@@ -352,7 +354,7 @@ class CAMGRID_AddonPreferences(AddonPreferences):
             if kmi:
                 from rna_keymap_ui import draw_kmi
 
-                draw_kmi([], kc, km, kmi, layout, 0)
+                draw_kmi([], kc, km, kmi, col, 0)
             else:
                 needs_restore = True
         if needs_restore:
