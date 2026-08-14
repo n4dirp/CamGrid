@@ -1,42 +1,40 @@
 # Camera Grid
 
-Viewport camera grid overlay for quick camera switching.
+A viewport camera grid overlay for Blender that lets you switch between cameras quickly by clicking, dragging, scrolling, or using keyboard shortcuts.
 
 ## Features
 
-- Click, drag, scroll, or keybind camera switching
-- Thumbnail or solid-tile display modes
-- Scrollable layout for scenes with many cameras
+- **Quick switching** -- Click, drag, scroll, or keybind to switch between cameras
+- **Preview thumbnails** -- Shows live viewport thumbnails for every camera, or use solid-tile and dots display modes
+- **Grid navigation** -- Arrow keys step between cameras and the grid scrolls for scenes with many cameras
+- **Customizable** -- Configure tile size, rows, columns, alignment, and display mode
+- **Theme-aware** -- Matches your Blender theme while supporting custom colors
+- **Collection filtering** -- Restrict the grid to a specific collection and choose whether hidden cameras appear
+- **Framing controls** -- Frame the active camera to the viewport with configurable padding
+
+## Location
+
+**How do I toggle the grid?** Click the grid icon at the right end of the 3D viewport header, or in the right sidebar (configurable), or press `Alt+Shift+C`.
+
+**Where are the settings?** The options appear as a popover next to the header toggle, or as a panel in the right sidebar; advanced options are in `Edit > Preferences > Extensions > Camera Grid`.
 
 ## Shortcuts
 
-### Keyboard *(Global)*
-
-| Shortcut | Action |
-| --- | --- |
-| `Alt+Shift+C` | Toggle camera grid on/off |
-| `Shift+Home` | Frame active camera to viewport |
-
-### Keyboard *(when the cursor is over the grid)*
-
-| Shortcut | Action |
-| --- | --- |
-| `Left/Right/Up/Down Arrow` | Navigate between cameras |
-| `F5` | Refresh camera preview thumbnails |
-| `Esc` | Close grid (requires *Close Grid with ESC* in prefs) |
-
-### Mouse *(inside the grid)*
-
-| Input | Action |
-| --- | --- |
-| `Left Click` | Switch to camera |
-| `Left Drag` | Quick-switch through cameras |
-| `Right Click` | Select camera |
-| `Right Drag` | Paint-select cameras |
-| `Scroll` | Switch camera (or scroll rows, configurable) |
-| `Shift+Scroll` | Switch camera (or scroll rows, inverted) |
-| `Ctrl+Scroll` | Resize tiles |
-| `Scrollbar` | Drag to scroll rows |
+Input | Shortcut | Action
+--- | --- | ---
+Keyboard | `Alt+Shift+C` | Toggle camera grid
+Keyboard | `Shift+Home` | Frame active camera to viewport
+Keyboard · Grid focused | `Arrow Keys` | Navigate between cameras
+Keyboard · Grid focused | `F5` | Refresh camera preview thumbnails
+Keyboard · Grid focused | `Esc` | Close grid (optional)
+Grid | `Left Click` | Switch to camera
+Grid | `Left Drag` | Quick-switch through cameras
+Grid | `Right Click` | Select camera
+Grid | `Right Drag` | Paint-select cameras
+Grid | `Scroll` | Switch camera or scroll rows (configurable)
+Grid | `Shift+Scroll` | Switch camera or scroll rows (inverted)
+Grid | `Ctrl+Scroll` | Resize tiles
+Grid | `Scrollbar` | Drag to scroll rows
 
 ## Requirements
 
