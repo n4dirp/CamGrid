@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.1] - 2026-08-14
+
+### Fixed
+- Fixed the active camera border color to use Blender's selection colors (selected vs. selected+active)
+
 ## [1.3.0] - 2026-07-30
 
 ### Added
