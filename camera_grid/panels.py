@@ -60,7 +60,11 @@ def draw_layout_section(layout, prefs):
         col.label(text="Text")
         row = col.row(align=True)
         row.prop(prefs.settings, "show_active_camera_name", text="Name")
-        row.prop(prefs.settings, "show_camera_settings", text="Lens")
+        row.prop(prefs.settings, "show_camera_lens", text="Lens")
+        row.prop(prefs.settings, "show_camera_sensor", text="Sensor")
+        row = col.row(align=True)
+        row.prop(prefs.settings, "show_camera_dof", text="DoF")
+        row.prop(prefs.settings, "show_camera_clip", text="Clip")
         row.prop(prefs.settings, "show_camera_count", text="Count")
 
 

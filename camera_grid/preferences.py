@@ -204,10 +204,25 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Display hidden cameras in the grid",
         default=False,
     )
-    show_camera_settings: BoolProperty(
-        name="Show Camera Settings",
-        description="Show camera lens, sensor width, and focal information in the info text",
+    show_camera_lens: BoolProperty(
+        name="Show Camera Lens",
+        description="Show the camera lens or field of view in the info text",
         default=True,
+    )
+    show_camera_sensor: BoolProperty(
+        name="Show Camera Sensor",
+        description="Show the camera sensor size in the info text",
+        default=True,
+    )
+    show_camera_dof: BoolProperty(
+        name="Show Depth of Field",
+        description="Show the camera depth of field settings in the info text",
+        default=True,
+    )
+    show_camera_clip: BoolProperty(
+        name="Show Camera Clip",
+        description="Show the camera clipping range in the info text",
+        default=False,
     )
     show_active_camera_name: BoolProperty(
         name="Show Active Camera Name",

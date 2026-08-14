@@ -258,7 +258,10 @@ class ThumbnailManager:
 def _has_info_content(prefs) -> bool:
     return (
         prefs.settings.show_active_camera_name
-        or prefs.settings.show_camera_settings
+        or prefs.settings.show_camera_lens
+        or prefs.settings.show_camera_sensor
+        or prefs.settings.show_camera_dof
+        or prefs.settings.show_camera_clip
         or prefs.settings.show_camera_count
     )
 
@@ -1140,8 +1143,10 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 )
 
             border_col = (
-                colors["border_active"] if is_active_obj else colors["border_selected"]
-            ) if selected else colors["tile_picked"]
+                (colors["border_active"] if is_active_obj else colors["border_selected"])
+                if selected
+                else colors["tile_picked"]
+            )
             _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
 
         # Tile Camera Name
@@ -1230,22 +1235,58 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
         if prefs.settings.show_active_camera_name:
             parts.append(active_cam.name)
 
-        if prefs.settings.show_camera_settings:
-            if cam_type == "PERSP":
+        if cam_type == "PERSP":
+            if prefs.settings.show_camera_lens:
                 lens = getattr(data, "lens", 0)
-                sensor = getattr(data, "sensor_width", 0)
-                if lens > 0:
+                lens_unit = getattr(data, "lens_unit", "MILLIMETERS")
+                if lens_unit == "FOV":
+                    angle = getattr(data, "angle", 0)
+                    if angle > 0:
+                        parts.append(f"Lens: {math.degrees(angle):.1f}\u00b0")
+                elif lens > 0:
                     parts.append(f"Lens: {int(lens)} mm")
-                if sensor > 0:
-                    parts.append(f"Sensor: {sensor:.0f} mm")
-            elif cam_type == "ORTHO":
+
+            if prefs.settings.show_camera_sensor:
+                sensor_w = getattr(data, "sensor_width", 0)
+                sensor_h = getattr(data, "sensor_height", 0)
+                if sensor_w > 0 and sensor_h > 0:
+                    sensor_fit = getattr(data, "sensor_fit", "AUTO")
+                    fit_suffix = " (H)" if sensor_fit == "HORIZONTAL" else " (V)" if sensor_fit == "VERTICAL" else ""
+                    parts.append(f"Sensor: {sensor_w:g}\u00d7{sensor_h:g} mm{fit_suffix}")
+                elif sensor_w > 0:
+                    parts.append(f"Sensor: {sensor_w:g} mm")
+
+            if prefs.settings.show_camera_dof:
+                dof = getattr(data, "dof", None)
+                if dof and getattr(dof, "use_dof", False):
+                    fstop = getattr(dof, "aperture_fstop", 0)
+                    if fstop > 0:
+                        if focus_obj := getattr(dof, "focus_object", None):
+                            focus_str = focus_obj.name
+                        else:
+                            focus_str = f"{getattr(dof, 'focus_distance', 0):g} m"
+                        parts.append(f"f/{fstop:g} @ {focus_str}")
+        elif cam_type == "ORTHO":
+            if prefs.settings.show_camera_lens:
                 ortho_scale = getattr(data, "ortho_scale", None)
                 if ortho_scale:
                     parts.append(f"Scale: {ortho_scale:.2f}")
-            elif cam_type == "PANO":
+        elif cam_type == "PANO":
+            if prefs.settings.show_camera_lens:
                 lens = getattr(data, "lens", 0)
-                if lens > 0:
+                lens_unit = getattr(data, "lens_unit", "MILLIMETERS")
+                if lens_unit == "FOV":
+                    angle = getattr(data, "angle", 0)
+                    if angle > 0:
+                        parts.append(f"Lens: {math.degrees(angle):.1f}\u00b0")
+                elif lens > 0:
                     parts.append(f"Lens: {int(lens)} mm")
+
+        if prefs.settings.show_camera_clip:
+            clip_start = getattr(data, "clip_start", 0)
+            clip_end = getattr(data, "clip_end", 0)
+            if clip_start > 0 and clip_end > 0:
+                parts.append(f"Clip: {clip_start:g}-{clip_end:g}")
 
     if prefs.settings.show_camera_count:
         n = len(layout.cameras)
