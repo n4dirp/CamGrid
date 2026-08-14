@@ -92,6 +92,7 @@ class GridLayout:
     scale: float
     region: Region
     active_camera: bpy.types.Object | None
+    active_object: bpy.types.Object | None
     active_index: int
     total_rows: int
     font_size: int
@@ -410,6 +411,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
 
     columns = _optimize_grid_columns(total_cameras, max_cols, effective_max_rows, max_available_width, tw, gap)
     active_camera = scene.camera
+    active_object = view_layer.objects.active if view_layer else None
     active_index = cameras.index(active_camera) if active_camera in cameras else 0
 
     total_rows = (total_cameras + columns - 1) // columns
@@ -460,6 +462,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         scale=scale,
         region=region,
         active_camera=active_camera,
+        active_object=active_object,
         active_index=active_index,
         total_rows=total_rows,
         font_size=max(8, int(FONT_SIZE * scale)),
@@ -905,6 +908,7 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
+        is_active_obj = cam == layout.active_object
         is_hovered = i == layout.hovered_tile
 
         if is_active:
@@ -927,7 +931,14 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
             _draw_pill_border(x, y, layout.tw, layout.th, colors["tile_border"], line_width)
 
             if selected:
-                _draw_pill_border(x, y, layout.tw, layout.th, colors["border_active"], line_width)
+                _draw_pill_border(
+                    x,
+                    y,
+                    layout.tw,
+                    layout.th,
+                    colors["border_active"] if is_active_obj else colors["border_selected"],
+                    line_width,
+                )
         else:
             radius = layout.radius
             # Draw the background shadow
@@ -949,7 +960,7 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
                     layout.tw,
                     layout.th,
                     radius,
-                    colors["border_active"],
+                    colors["border_active"] if is_active_obj else colors["border_selected"],
                     line_width,
                 )
 
@@ -977,6 +988,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
+        is_active_obj = cam == layout.active_object
         is_hovered = i == layout.hovered_tile
 
         if is_active:
@@ -998,7 +1010,8 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
 
         # Draw the tile border (if selected or active)
         if selected:
-            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["border_active"], line_width)
+            border_col = colors["border_active"] if is_active_obj else colors["border_selected"]
+            _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
 
             if selected and is_active:
                 if layout.tw - 2 * inset > 0 and layout.th - 2 * inset > 0:
@@ -1025,7 +1038,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
 
         tw, _ = blf.dimensions(font_id, text)
         if selected:
-            text_color = colors["border_active"]
+            text_color = colors["border_active"] if is_active_obj else colors["border_selected"]
         elif is_active:
             text_color = colors["tile_text"]
         else:
@@ -1065,6 +1078,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         selected = cam.select_get()
         is_active = cam == layout.active_camera
+        is_active_obj = cam == layout.active_object
         is_hovered = i == layout.hovered_tile
 
         cached = ThumbnailManager.cache.get(cam.name)
@@ -1125,7 +1139,9 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                     line_width * 2,
                 )
 
-            border_col = colors["border_active"] if selected else colors["tile_picked"]
+            border_col = (
+                colors["border_active"] if is_active_obj else colors["border_selected"]
+            ) if selected else colors["tile_picked"]
             _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
 
         # Tile Camera Name
@@ -1151,7 +1167,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
             _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5))
 
             if selected:
-                text_color = colors["border_active"]
+                text_color = colors["border_active"] if is_active_obj else colors["border_selected"]
             elif is_active:
                 text_color = colors["tile_text"]
             else:
