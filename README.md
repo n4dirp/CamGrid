@@ -27,14 +27,17 @@ Keyboard | `Shift+Home` | Frame active camera to viewport
 Keyboard · Grid focused | `Arrow Keys` | Navigate between cameras
 Keyboard · Grid focused | `F5` | Refresh camera preview thumbnails
 Keyboard · Grid focused | `Esc` | Close grid (optional)
-Grid | `Left Click` | Switch to camera
-Grid | `Left Drag` | Quick-switch through cameras
-Grid | `Right Click` | Select camera
-Grid | `Right Drag` | Paint-select cameras
+Grid | `Primary Click` | Switch to camera
+Grid | `Primary Drag` | Quick-switch through cameras
+Grid | `Secondary Click` | Select camera
+Grid | `Secondary Drag` | Paint-select cameras
 Grid | `Scroll` | Switch camera or scroll rows (configurable)
 Grid | `Shift+Scroll` | Switch camera or scroll rows (inverted)
 Grid | `Ctrl+Scroll` | Resize tiles
 Grid | `Scrollbar` | Drag to scroll rows
+Grid | `Ctrl+Shift+1/2/3` | Switch display mode (Dots / Labels / Thumbnails)
+
+Primary/secondary click roles can be swapped with the "Select with Right Click" option in the add-on Options.
 
 ## Requirements
 
