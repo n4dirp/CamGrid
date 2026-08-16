@@ -3,12 +3,13 @@
 ## [1.4.0] - 2026-08-15
 
 ### Added
-- New camera info fields in the info text: sensor size (respecting sensor fit), depth of field, and clipping range
-- Individual toggles for each info text field (Lens, Sensor, DoF, Clip, Name, Count)
+- Added a master opacity option to control the overall transparency of the grid overlay
+- Added Ctrl+Shift+1/2/3 shortcuts to switch between the Dots, Labels, and Thumbnails display modes
+- Added camera info fields with individual toggles for Lens, Sensor, DoF, Clip, Name, and Count.
 - Auto-refresh camera preview thumbnails when camera data changes, with a configurable debounce delay
 
 ### Changed
-- Fill directions changed to top to bottom
+- Cameras now fill the grid from top to bottom
 - Lens display now respects the camera's lens unit (millimeters or field of view)
 
 ## [1.3.1] - 2026-08-14
