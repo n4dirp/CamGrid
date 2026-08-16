@@ -1592,7 +1592,7 @@ class CAMGRID_OT_toggle_grid(Operator):
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
         "Ctrl+Wheel - Resize tiles.\n"
-        "Ctrl+1/2/3 - Switch display mode.\n"
+        "Ctrl+Shift+1/2/3 - Switch display mode.\n"
         "F5 - Refresh previews."
     )
     bl_options = {"INTERNAL"}
@@ -1685,7 +1685,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                     return {"RUNNING_MODAL"}
                 return {"PASS_THROUGH"}
 
-            case "ONE" | "TWO" | "THREE" if event.value == "PRESS" and event.ctrl:
+            case "ONE" | "TWO" | "THREE" if event.value == "PRESS" and event.ctrl and event.shift:
                 return self._handle_display_type_switch(context, event, event_type, state, area, region, mx, my)
             case _:
                 return {"PASS_THROUGH"}
