@@ -5,8 +5,10 @@
 ### Added
 - New camera info fields in the info text: sensor size (respecting sensor fit), depth of field, and clipping range
 - Individual toggles for each info text field (Lens, Sensor, DoF, Clip, Name, Count)
+- Auto-refresh camera preview thumbnails when camera data changes, with a configurable debounce delay
 
-### Improved
+### Changed
+- Fill directions changed to top to bottom
 - Lens display now respects the camera's lens unit (millimeters or field of view)
 
 ## [1.3.1] - 2026-08-14
