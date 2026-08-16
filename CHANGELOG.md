@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.4.0] - 2026-08-14
+## [1.4.0] - 2026-08-15
 
 ### Added
 - New camera info fields in the info text: sensor size (respecting sensor fit), depth of field, and clipping range
