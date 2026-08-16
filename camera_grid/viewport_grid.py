@@ -21,6 +21,7 @@ from .gpu_draw import (
     _get_theme_colors,
 )
 from .helpers import (
+    _alpha_mul,
     _get_asset_shelf_height,
     _get_bottom_header_height,
     _get_left_right_overlap,
@@ -41,7 +42,7 @@ DOT_WIDTH = 18
 DOT_HEIGHT = 9
 TILE_HEIGHT = 22
 TILE_GAP = 5
-BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 2
+BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 4
 HORIZONTAL_PADDING = 30
 SHADOW_OFFSET = 1
 
@@ -55,7 +56,7 @@ SCROLLBAR_MIN_THUMB = 8
 FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
-INFO_TEXT_OFFSET_Y = 17 + TILE_GAP
+INFO_TEXT_OFFSET_Y = 18 + TILE_GAP
 
 
 class _DragState(Enum):
@@ -106,6 +107,7 @@ class GridLayout:
     area_pointer: int
     hovered_tile: int | None
     scrollbar_hovered: bool
+    master_alpha: float
 
 
 @dataclass(slots=True, kw_only=True)
@@ -502,6 +504,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         area_pointer=area_ptr,
         hovered_tile=state.hovered_tile,
         scrollbar_hovered=state.scrollbar_hovered,
+        master_alpha=prefs.settings.master_alpha,
     )
 
 
@@ -684,14 +687,25 @@ def _process_thumbnail_queue():
     context = bpy.context
     target_area = None
     state = None
+    region = None
+    layout = None
     for area_ptr, s in GridState.areas.items():
-        target_area = next(
+        if not s.enabled:
+            continue
+        candidate = next(
             (a for w in context.window_manager.windows for a in w.screen.areas if a.as_pointer() == area_ptr),
             None,
         )
-        if target_area and target_area.type == "VIEW_3D":
-            state = s
-            break
+        if not candidate or candidate.type != "VIEW_3D":
+            continue
+        candidate_region = next((r for r in candidate.regions if r.type == "WINDOW"), None)
+        if not candidate_region:
+            continue
+        candidate_layout = _compute_grid_layout(context, area=candidate, region=candidate_region)
+        if candidate_layout is None:
+            continue
+        target_area, state, region, layout = candidate, s, candidate_region, candidate_layout
+        break
 
     if not target_area or not state:
         ThumbnailManager.cleanup_shading()
@@ -699,9 +713,7 @@ def _process_thumbnail_queue():
         return None
 
     space_view3d = target_area.spaces.active
-    region = next((r for r in target_area.regions if r.type == "WINDOW"), None)
-    layout = _compute_grid_layout(context, area=target_area, region=region)
-    if not space_view3d or not region or not layout:
+    if not space_view3d or not layout:
         ThumbnailManager.cleanup_shading(space_view3d)
         ThumbnailManager.render_timer_active = False
         return None
@@ -937,7 +949,7 @@ def _draw_background_panel(layout: GridLayout, colors: dict):
         g_right - g_left - 1,
         g_top - g_bottom,
         radius,
-        (0.0, 0.0, 0.0, 0.4),
+        _alpha_mul((0.0, 0.0, 0.0, 0.4), layout.master_alpha),
     )
 
     _draw_filled_rounded_rect(g_left, g_bottom, g_right - g_left, g_top - g_bottom, radius, colors["bg_color"])
@@ -1005,14 +1017,23 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
         else:
             radius = layout.radius
             # Draw the background shadow
-            _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
+            _draw_filled_rounded_rect(
+                x,
+                y - shadow_offset,
+                layout.tw,
+                layout.th,
+                radius,
+                _alpha_mul((0.0, 0.0, 0.0, 0.4), layout.master_alpha),
+            )
 
             # Draw the tile background
             _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
 
             # Draw the tile highlight (if hovered)
             if is_hovered:
-                _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+                _draw_filled_rounded_rect(
+                    x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04 * layout.master_alpha)
+                )
 
             _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
 
@@ -1062,14 +1083,18 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
             base_col = colors["tile_default"]
 
         # Draw the background shadow
-        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
+        _draw_filled_rounded_rect(
+            x, y - shadow_offset, layout.tw, layout.th, radius, _alpha_mul((0.0, 0.0, 0.0, 0.4), layout.master_alpha)
+        )
 
         # Draw the tile background
         _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius * 1.25, base_col)
 
         # Draw the tile highlight (if hovered)
         if is_hovered:
-            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+            _draw_filled_rounded_rect(
+                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04 * layout.master_alpha)
+            )
 
         _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width * 0.5)
 
@@ -1169,7 +1194,9 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
             ThumbnailManager.stale.add(cam.name)
 
         # Tile Shadow
-        _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
+        _draw_filled_rounded_rect(
+            x, y - shadow_offset, layout.tw, layout.th, radius, _alpha_mul((0.0, 0.0, 0.0, 0.4), layout.master_alpha)
+        )
 
         # Tile Background
         _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, colors["tile_default"])
@@ -1180,15 +1207,21 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         # Stale Tile Overlay
         if not is_valid and is_stale:
-            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_default"], 0.5))
+            _draw_filled_rounded_rect(
+                x, y, layout.tw, layout.th, radius, _rgba(colors["tile_default"], 0.5 * layout.master_alpha)
+            )
 
         # Active Tile Overlay
         if is_active:
-            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.15))
+            _draw_filled_rounded_rect(
+                x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.15 * layout.master_alpha)
+            )
 
         # Hovered Tile Overlay
         if is_hovered:
-            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04))
+            _draw_filled_rounded_rect(
+                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04 * layout.master_alpha)
+            )
 
         # Draw Light Tile Border
         _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
@@ -1233,7 +1266,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
             bx, by = x + round((layout.tw - bw) / 2), y + badge_pad
 
             bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
-            _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5))
+            _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5 * layout.master_alpha))
 
             if selected:
                 text_color = colors["border_active"] if is_active_obj else colors["border_selected"]
@@ -1276,7 +1309,7 @@ def _draw_scrollbar(layout: GridLayout, colors: dict):
             bar_left = sb.track_left
             bar_right = bar_left + sb_w
         alpha = 1.0 if is_hovered else 0.6
-        color = _rgba(colors["scroll_bar"], alpha)
+        color = _rgba(colors["scroll_bar"], alpha * layout.master_alpha)
         _draw_pill(
             round(bar_left),
             round(sb.thumb_y),
@@ -1310,15 +1343,31 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
                 elif lens > 0:
                     parts.append(f"Lens: {int(lens)} mm")
 
-            if prefs.settings.show_camera_sensor:
-                sensor_w = getattr(data, "sensor_width", 0)
-                sensor_h = getattr(data, "sensor_height", 0)
+        if prefs.settings.show_camera_sensor:
+            sensor_w = getattr(data, "sensor_width", 0)
+            sensor_h = getattr(data, "sensor_height", 0)
+            sensor_fit = getattr(data, "sensor_fit", "AUTO")
+
+            if sensor_fit == "AUTO":
+                render = bpy.context.scene.render
+                aspect = (
+                    (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
+                    if render.resolution_y > 0
+                    else 1.0
+                )
                 if sensor_w > 0 and sensor_h > 0:
-                    sensor_fit = getattr(data, "sensor_fit", "AUTO")
-                    fit_suffix = " (H)" if sensor_fit == "HORIZONTAL" else " (V)" if sensor_fit == "VERTICAL" else ""
-                    parts.append(f"Sensor: {sensor_w:g}\u00d7{sensor_h:g} mm{fit_suffix}")
+                    if aspect >= 1.0:
+                        parts.append(f"Sensor: {sensor_w:g} mm")
+                    else:
+                        parts.append(f"Sensor: {sensor_h:g} mm")
                 elif sensor_w > 0:
                     parts.append(f"Sensor: {sensor_w:g} mm")
+            elif sensor_fit == "HORIZONTAL":
+                if sensor_w > 0:
+                    parts.append(f"Sensor: {sensor_w:g} mm")
+            elif sensor_fit == "VERTICAL":
+                if sensor_h > 0:
+                    parts.append(f"Sensor: {sensor_h:g} mm")
 
             if prefs.settings.show_camera_dof:
                 dof = getattr(data, "dof", None)
@@ -1329,7 +1378,7 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
                             focus_str = focus_obj.name
                         else:
                             focus_str = f"{getattr(dof, 'focus_distance', 0):g} m"
-                        parts.append(f"f/{fstop:g} @ {focus_str}")
+                        parts.append(f"DoF: f/{fstop:g}, {focus_str}")
         elif cam_type == "ORTHO":
             if prefs.settings.show_camera_lens:
                 ortho_scale = getattr(data, "ortho_scale", None)
@@ -1370,11 +1419,14 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
 
     info_text = " | ".join(parts)
     iw, _ = blf.dimensions(font_id, info_text)
+    gap = TILE_GAP * layout.scale
 
     if layout.grid_alignment == "LEFT":
-        ix = layout.origin_x
+        ix = layout.origin_x - gap
     elif layout.grid_alignment == "RIGHT":
-        ix = layout.origin_x + layout.grid_width - iw
+        ix = layout.origin_x + layout.grid_width - iw + gap
+        if _get_scrollbar_layout(layout):
+            ix += SCROLLBAR_WIDTH * layout.scale + gap
     else:
         ix = layout.origin_x + (layout.grid_width - iw) / 2
 
@@ -1427,6 +1479,9 @@ def _draw_grid():
 
     prefs = bpy.context.preferences.addons.get(__package__).preferences
     active_scene = bpy.context.scene
+
+    if layout.master_alpha < 1.0:
+        colors = {name: _alpha_mul(color, layout.master_alpha) for name, color in colors.items()}
 
     _evict_orphaned_thumbnails(layout.cameras)
     _queue_missing_thumbnails(layout, prefs, active_scene)
@@ -1485,6 +1540,11 @@ def _full_cleanup():
     GridState.reset()
 
 
+def _load_post_handler(_scene):
+    """Clear thumbnail cache and grid state when a new blend file is loaded."""
+    _full_cleanup()
+
+
 def toggle_grid(context: Context):
     curr_area_ptr = context.area.as_pointer()
     state = GridState.areas.get(curr_area_ptr)
@@ -1532,6 +1592,7 @@ class CAMGRID_OT_toggle_grid(Operator):
         "LMB+Drag - Quick-switch through cameras.\n"
         "RMB+Drag - Paint-select cameras.\n"
         "Ctrl+Wheel - Resize tiles.\n"
+        "Ctrl+1/2/3 - Switch display mode.\n"
         "F5 - Refresh previews."
     )
     bl_options = {"INTERNAL"}
@@ -1623,6 +1684,9 @@ class CAMGRID_OT_interactive_grid(Operator):
                             pass
                     return {"RUNNING_MODAL"}
                 return {"PASS_THROUGH"}
+
+            case "ONE" | "TWO" | "THREE" if event.value == "PRESS" and event.ctrl:
+                return self._handle_display_type_switch(context, event, event_type, state, area, region, mx, my)
             case _:
                 return {"PASS_THROUGH"}
 
@@ -1881,6 +1945,21 @@ class CAMGRID_OT_interactive_grid(Operator):
             _apply_on_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
+    def _handle_display_type_switch(
+        self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
+    ):
+        if GridState.drag_state != _DragState.IDLE:
+            return {"RUNNING_MODAL"}
+        layout = _compute_grid_layout(context, area=area, region=region)
+        if not layout or not _is_mouse_in_grid(layout, mx, my):
+            return {"PASS_THROUGH"}
+        prefs = context.preferences.addons.get(__package__).preferences
+        new_type = {"ONE": "DOTS", "TWO": "TILES", "THREE": "THUMBNAILS"}[event_type]
+        if prefs.settings.display_type != new_type:
+            prefs.settings.display_type = new_type
+            redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
+        return {"RUNNING_MODAL"}
+
 
 class CAMGRID_OT_refresh_previews(Operator):
     bl_idname = "camgrid.refresh_previews"
@@ -2016,12 +2095,17 @@ classes = (
 
 def register():
     bpy.app.handlers.depsgraph_update_post.append(_depsgraph_update_post_handler)
+    bpy.app.handlers.load_post.append(_load_post_handler)
 
 
 def unregister():
     ThumbnailManager.cancel_auto_refresh()
     try:
         bpy.app.handlers.depsgraph_update_post.remove(_depsgraph_update_post_handler)
+    except ValueError:
+        pass
+    try:
+        bpy.app.handlers.load_post.remove(_load_post_handler)
     except ValueError:
         pass
     ThumbnailManager.invalidate()

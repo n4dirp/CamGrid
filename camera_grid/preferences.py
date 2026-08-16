@@ -85,13 +85,21 @@ def _update_auto_refresh(self, context):
 class CAMGRID_PG_settings(PropertyGroup):
     """Preferences for the Camera Grid."""
 
+    master_alpha: FloatProperty(
+        name="Master Alpha",
+        description="Multiply the opacity of all camera grid draw items",
+        default=1.0,
+        min=0.1,
+        max=1.0,
+        subtype="FACTOR",
+    )
     display_type: EnumProperty(
         name="Display Type",
         description="Camera grid tile display mode",
         items=[
-            ("DOTS", "Dots", "Show minimal dots without labels"),
-            ("TILES", "Labels", "Show simple colored tiles"),
-            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails"),
+            ("DOTS", "Dots", "Show minimal dots without labels", "SHORTDISPLAY", 0),
+            ("TILES", "Labels", "Show simple colored tiles", "LONGDISPLAY", 1),
+            ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 2),
         ],
         default="TILES",
         update=_update_display_type,
@@ -146,8 +154,8 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_size: IntProperty(
         name="Preview Size",
         description="Tile width in pixels for camera preview thumbnails",
-        default=128,
-        min=64,
+        default=64,
+        min=32,
         soft_max=256,
         max=512,
         subtype="PIXEL",

@@ -34,10 +34,9 @@ def draw_layout_section(layout, prefs):
 
         col.separator()
         col.label(text="Display Mode")
-        col.row().prop(prefs.settings, "display_type", text="Display Mode", expand=True)
+        col.prop(prefs.settings, "display_type", text="Display Mode", expand=True)
 
-        col.separator()
-        sub = col.column(align=True)
+        sub = body.column(align=True)
         if prefs.settings.display_type == "THUMBNAILS":
             sub.prop(prefs.settings, "preview_size", text="Size")
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
@@ -51,10 +50,11 @@ def draw_layout_section(layout, prefs):
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_type == "THUMBNAILS":
-            row = body.row(align=True)
+            col = body.column(align=True)
+            row = col.row(align=True)
             row.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
             row.prop(prefs.settings, "auto_refresh_previews", text="Auto Refresh")
-            body.prop(prefs.settings, "preview_show_names", text="Show Names")
+            col.prop(prefs.settings, "preview_show_names", text="Show Names")
 
         body.separator()
         col = body.column(align=True)
@@ -68,9 +68,12 @@ def draw_layout_section(layout, prefs):
         row.prop(prefs.settings, "show_camera_clip", text="Clip")
         row.prop(prefs.settings, "show_camera_count", text="Count")
 
+        body.separator()
+        body.prop(prefs.settings, "master_alpha", text="Opacity")
+
 
 def draw_interaction_section(layout, prefs):
-    header, body = layout.panel("CAMGRID_PT_camera_grid_interaction", default_closed=False)
+    header, body = layout.panel("CAMGRID_PT_camera_grid_interaction", default_closed=True)
     header.label(text="Options")
 
     if body:
