@@ -50,11 +50,17 @@ def draw_layout_section(layout, prefs):
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_type == "THUMBNAILS":
-            col = body.column(align=True)
-            row = col.row(align=True)
+            row = body.row(align=True)
             row.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
-            row.prop(prefs.settings, "auto_refresh_previews", text="Auto Refresh")
-            col.prop(prefs.settings, "preview_show_names", text="Show Names")
+            row.prop(prefs.settings, "preview_show_names", text="Show Names")
+
+            col = body.column()
+            col.label(text="Auto Refresh")
+            row = col.row(align=True)
+            row.prop(prefs.settings, "auto_refresh_previews", text="")
+            sub = row.row(align=True)
+            sub.active = prefs.settings.auto_refresh_previews
+            sub.prop(prefs.settings, "auto_refresh_shading", text="")
 
         body.separator()
         col = body.column(align=True)
@@ -69,7 +75,7 @@ def draw_layout_section(layout, prefs):
         row.prop(prefs.settings, "show_camera_count", text="Count")
 
         body.separator()
-        body.prop(prefs.settings, "master_alpha", text="Opacity")
+        body.prop(prefs.settings, "master_alpha", text="Panel Opacity")
 
 
 def draw_interaction_section(layout, prefs):
@@ -86,7 +92,9 @@ def draw_interaction_section(layout, prefs):
         col.row().prop(prefs.settings, "on_switch_action", text="")
 
         body.separator()
-        body.prop(prefs.settings, "cycle_cameras", text="Loop Through Cameras")
+        row = body.row(align=True)
+        row.prop(prefs.settings, "cycle_cameras", text="Cycle Switch")
+        row.prop(prefs.settings, "select_with_right_click", text="Right Click to Select")
 
 
 def draw_frame_camera_section(layout, prefs):

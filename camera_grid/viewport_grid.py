@@ -61,10 +61,10 @@ INFO_TEXT_OFFSET_Y = 18 + TILE_GAP
 
 class _DragState(Enum):
     IDLE = auto()
-    LMB_PRESSED = auto()
-    LMB_DRAGGING = auto()
-    RMB_PRESSED = auto()
-    RMB_DRAGGING = auto()
+    SWITCH_PRESSED = auto()
+    SWITCH_DRAGGING = auto()
+    SELECT_PRESSED = auto()
+    SELECT_DRAGGING = auto()
     SCROLLBAR_DRAGGING = auto()
 
 
@@ -169,6 +169,7 @@ class GridState:
         cls.drag_last_tile = -1
         cls.drag_last_scroll_time = 0.0
         cls.drag_select_value = False
+        ThumbnailManager.prefer_non_rendered = False
 
 
 class ThumbnailManager:
@@ -186,6 +187,7 @@ class ThumbnailManager:
 
     auto_refresh_deadline: float = 0.0
     auto_refresh_timer_active: bool = False
+    prefer_non_rendered: bool = False
 
     original_shading_type: str | None = None
     original_show_overlays: bool | None = None
@@ -205,6 +207,7 @@ class ThumbnailManager:
         cls.render_timer_active = False
         cls.preview_rendered_count = 0
         cls.render_elapsed_ms = 0.0
+        cls.prefer_non_rendered = False
 
         cls._restore_viewport()
 
@@ -593,6 +596,11 @@ def _apply_on_switch_action(context, area=None, region=None):
                 pass
 
 
+def _get_select_button(prefs) -> str:
+    """Return the mouse button that selects cameras."""
+    return "RIGHTMOUSE" if prefs.settings.select_with_right_click else "LEFTMOUSE"
+
+
 def _action_switch_camera(layout: GridLayout, tile_index: int, context=None, area=None, region=None):
     context = context or bpy.context
     if 0 <= tile_index < len(layout.cameras):
@@ -646,10 +654,42 @@ def _auto_refresh_tick():
     return max(0.0, ThumbnailManager.auto_refresh_deadline - time.monotonic())
 
 
+def _find_thumbnail_render_area(context, prefer_non_rendered: bool = False):
+    """Return the first grid viewport suitable for thumbnail rendering."""
+    first = None
+    for area_ptr, s in GridState.areas.items():
+        if not s.enabled:
+            continue
+        candidate = next(
+            (a for w in context.window_manager.windows for a in w.screen.areas if a.as_pointer() == area_ptr),
+            None,
+        )
+        if not candidate or candidate.type != "VIEW_3D":
+            continue
+        candidate_region = next((r for r in candidate.regions if r.type == "WINDOW"), None)
+        if not candidate_region:
+            continue
+        candidate_layout = _compute_grid_layout(context, area=candidate, region=candidate_region)
+        if candidate_layout is None:
+            continue
+        if first is None:
+            first = (candidate, s, candidate_region, candidate_layout)
+        if not prefer_non_rendered or candidate.spaces.active.shading.type != "RENDERED":
+            return (candidate, s, candidate_region, candidate_layout)
+    return first
+
+
 def _queue_stale_thumbnails():
     """Queue re-renders for thumbnails the draw pass has marked as stale."""
     if not ThumbnailManager.stale:
         return
+    prefs = bpy.context.preferences.addons.get(__package__).preferences
+    if prefs.settings.auto_refresh_shading == "SKIP_RENDERED":
+        found = _find_thumbnail_render_area(bpy.context, prefer_non_rendered=True)
+        if not found or found[0].spaces.active.shading.type == "RENDERED":
+            logger.debug("PREVIEW: Skipping auto-refresh, all grid viewports use Rendered shading")
+            return
+        ThumbnailManager.prefer_non_rendered = True
     for cam_name in list(ThumbnailManager.stale):
         if cam_name in ThumbnailManager.cache and cam_name not in ThumbnailManager.pending:
             ThumbnailManager.queue_render(cam_name)
@@ -682,40 +722,23 @@ def _process_thumbnail_queue():
     if not ThumbnailManager.pending:
         ThumbnailManager._restore_viewport()
         ThumbnailManager.render_timer_active = False
+        ThumbnailManager.prefer_non_rendered = False
         return None
 
     context = bpy.context
-    target_area = None
-    state = None
-    region = None
-    layout = None
-    for area_ptr, s in GridState.areas.items():
-        if not s.enabled:
-            continue
-        candidate = next(
-            (a for w in context.window_manager.windows for a in w.screen.areas if a.as_pointer() == area_ptr),
-            None,
-        )
-        if not candidate or candidate.type != "VIEW_3D":
-            continue
-        candidate_region = next((r for r in candidate.regions if r.type == "WINDOW"), None)
-        if not candidate_region:
-            continue
-        candidate_layout = _compute_grid_layout(context, area=candidate, region=candidate_region)
-        if candidate_layout is None:
-            continue
-        target_area, state, region, layout = candidate, s, candidate_region, candidate_layout
-        break
-
-    if not target_area or not state:
+    found = _find_thumbnail_render_area(context, prefer_non_rendered=ThumbnailManager.prefer_non_rendered)
+    if not found:
         ThumbnailManager.cleanup_shading()
         ThumbnailManager.render_timer_active = False
+        ThumbnailManager.prefer_non_rendered = False
         return None
+    target_area, state, region, layout = found
 
     space_view3d = target_area.spaces.active
     if not space_view3d or not layout:
         ThumbnailManager.cleanup_shading(space_view3d)
         ThumbnailManager.render_timer_active = False
+        ThumbnailManager.prefer_non_rendered = False
         return None
 
     visible_keys = {layout.cameras[idx].name for idx in range(layout.start_index, layout.end_index)}
@@ -727,6 +750,7 @@ def _process_thumbnail_queue():
         ThumbnailManager.pending.clear()
         ThumbnailManager.cleanup_shading(space_view3d)
         ThumbnailManager.render_timer_active = False
+        ThumbnailManager.prefer_non_rendered = False
         return None
 
     logger.trace(
@@ -810,6 +834,7 @@ def _process_thumbnail_queue():
     )
 
     ThumbnailManager.render_timer_active = False
+    ThumbnailManager.prefer_non_rendered = False
     return None
 
 
@@ -1220,7 +1245,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
         # Hovered Tile Overlay
         if is_hovered:
             _draw_filled_rounded_rect(
-                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.04 * layout.master_alpha)
+                x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.02 * layout.master_alpha)
             )
 
         # Draw Light Tile Border
@@ -1588,9 +1613,9 @@ class CAMGRID_OT_toggle_grid(Operator):
     bl_description = (
         "Toggle the camera grid overlay.\n\n"
         "Shortcuts (Over-Grid):\n"
-        "LMB / Wheel / Arrows - Switch camera.\n"
-        "LMB+Drag - Quick-switch through cameras.\n"
-        "RMB+Drag - Paint-select cameras.\n"
+        "Click / Wheel / Arrows - Switch camera.\n"
+        "Click+Drag - Quick-switch through cameras.\n"
+        "Select+Drag - Paint-select cameras.\n"
         "Ctrl+Wheel - Resize tiles.\n"
         "Ctrl+Shift+1/2/3 - Switch display mode.\n"
         "F5 - Refresh previews."
@@ -1744,12 +1769,12 @@ class CAMGRID_OT_interactive_grid(Operator):
             case _DragState.SCROLLBAR_DRAGGING if layout:
                 if sb := _get_scrollbar_layout(layout):
                     self._update_scrollbar_scroll(layout, sb, my, state)
-            case _DragState.LMB_PRESSED if layout:
+            case _DragState.SWITCH_PRESSED if layout:
                 if (t := _get_tile_at_mouse(layout, mx, my)) is not None and t != GridState.drag_tile:
-                    GridState.drag_state = _DragState.LMB_DRAGGING
+                    GridState.drag_state = _DragState.SWITCH_DRAGGING
                     GridState.drag_last_tile = t
                     _action_switch_camera(layout, t, context, area, region)
-            case _DragState.LMB_DRAGGING if layout:
+            case _DragState.SWITCH_DRAGGING if layout:
                 GridState.drag_last_tile = _drag_tile_action(
                     layout,
                     mx,
@@ -1757,18 +1782,18 @@ class CAMGRID_OT_interactive_grid(Operator):
                     GridState.drag_last_tile,
                     lambda cam_idx, idx: _action_switch_camera(cam_idx, idx, context, area, region),
                 )
-            case _DragState.RMB_PRESSED if layout:
+            case _DragState.SELECT_PRESSED if layout:
                 if (t := _get_tile_at_mouse(layout, mx, my)) is not None and t != GridState.drag_tile:
-                    GridState.drag_state = _DragState.RMB_DRAGGING
+                    GridState.drag_state = _DragState.SELECT_DRAGGING
                     GridState.drag_last_tile = t
                     _action_select_camera(layout, t)
-            case _DragState.RMB_DRAGGING if layout:
+            case _DragState.SELECT_DRAGGING if layout:
                 GridState.drag_last_tile = _drag_tile_action(
                     layout, mx, my, GridState.drag_last_tile, _action_select_camera
                 )
 
         if (
-            GridState.drag_state in (_DragState.LMB_DRAGGING, _DragState.RMB_DRAGGING)
+            GridState.drag_state in (_DragState.SWITCH_DRAGGING, _DragState.SELECT_DRAGGING)
             and layout
             and layout.total_rows > layout.visible_rows
         ):
@@ -1812,9 +1837,10 @@ class CAMGRID_OT_interactive_grid(Operator):
         tile_index = _get_tile_at_mouse(layout, mx, my)
         if tile_index is not None:
             cam = layout.cameras[tile_index]
-            if event_type == "RIGHTMOUSE":
+            prefs = context.preferences.addons.get(__package__).preferences
+            if event_type == _get_select_button(prefs):
                 GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = (
-                    _DragState.RMB_PRESSED,
+                    _DragState.SELECT_PRESSED,
                     tile_index,
                     -1,
                 )
@@ -1829,7 +1855,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 return {"RUNNING_MODAL"}
 
             GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = (
-                _DragState.LMB_PRESSED,
+                _DragState.SWITCH_PRESSED,
                 tile_index,
                 -1,
             )
@@ -1846,15 +1872,20 @@ class CAMGRID_OT_interactive_grid(Operator):
     def _handle_mouse_release(
         self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
     ):
+        prefs = context.preferences.addons.get(__package__).preferences
+        select_button = _get_select_button(prefs)
+        switch_button = "RIGHTMOUSE" if select_button == "LEFTMOUSE" else "LEFTMOUSE"
         if (
-            GridState.drag_state
-            in (
-                _DragState.LMB_PRESSED,
-                _DragState.LMB_DRAGGING,
-                _DragState.SCROLLBAR_DRAGGING,
+            (
+                GridState.drag_state in (_DragState.SWITCH_PRESSED, _DragState.SWITCH_DRAGGING)
+                and event_type == switch_button
             )
-            and event_type == "LEFTMOUSE"
-        ) or (GridState.drag_state in (_DragState.RMB_PRESSED, _DragState.RMB_DRAGGING) and event_type == "RIGHTMOUSE"):
+            or (
+                GridState.drag_state in (_DragState.SELECT_PRESSED, _DragState.SELECT_DRAGGING)
+                and event_type == select_button
+            )
+            or (GridState.drag_state == _DragState.SCROLLBAR_DRAGGING and event_type == "LEFTMOUSE")
+        ):
             GridState.drag_state, GridState.drag_tile, GridState.drag_last_tile = (
                 _DragState.IDLE,
                 -1,

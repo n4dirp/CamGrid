@@ -88,7 +88,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     master_alpha: FloatProperty(
         name="Master Alpha",
         description="Multiply the opacity of all camera grid draw items",
-        default=1.0,
+        default=0.9,
         min=0.1,
         max=1.0,
         subtype="FACTOR",
@@ -154,10 +154,10 @@ class CAMGRID_PG_settings(PropertyGroup):
     preview_size: IntProperty(
         name="Preview Size",
         description="Tile width in pixels for camera preview thumbnails",
-        default=64,
+        default=128,
         min=32,
-        soft_max=256,
-        max=512,
+        soft_max=512,
+        max=1024,
         subtype="PIXEL",
     )
     preview_disable_overlays: BoolProperty(
@@ -209,6 +209,15 @@ class CAMGRID_PG_settings(PropertyGroup):
         precision=1,
         unit="TIME_ABSOLUTE",
     )
+    auto_refresh_shading: EnumProperty(
+        name="",
+        description="Viewport shading types allowed to trigger preview auto-refresh",
+        items=[
+            ("ALWAYS", "Always", "Refresh previews regardless of viewport shading"),
+            ("SKIP_RENDERED", "Skip Rendered", "Skip auto-refresh when all grid viewports use Rendered shading"),
+        ],
+        default="SKIP_RENDERED",
+    )
     dots_max_rows: IntProperty(
         name="Dots Max Rows",
         description="Maximum number of visible rows in dots mode",
@@ -251,12 +260,12 @@ class CAMGRID_PG_settings(PropertyGroup):
     show_camera_clip: BoolProperty(
         name="Show Camera Clip",
         description="Show the camera clipping range in the info text",
-        default=False,
+        default=True,
     )
     show_active_camera_name: BoolProperty(
         name="Show Active Camera Name",
         description="Show the active camera name in the info text",
-        default=False,
+        default=True,
     )
     show_camera_count: BoolProperty(
         name="Show Camera Count",
@@ -287,6 +296,11 @@ class CAMGRID_PG_settings(PropertyGroup):
         ],
         default="CAMERA",
     )
+    select_with_right_click: BoolProperty(
+        name="Select with Right Click",
+        description=("Use right-click to select cameras and left-click to switch. Disable to swap the roles"),
+        default=True,
+    )
     frame_horizontal_padding: IntProperty(
         name="Frame Horizontal Padding",
         description="Horizontal padding when framing the camera in the viewport",
@@ -298,7 +312,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_top_padding: IntProperty(
         name="Frame Top Padding",
         description="Top padding when framing the camera in the viewport",
-        default=30,
+        default=27,
         min=0,
         soft_max=200,
         subtype="PIXEL",
@@ -306,7 +320,7 @@ class CAMGRID_PG_settings(PropertyGroup):
     frame_bottom_padding: IntProperty(
         name="Frame Bottom Padding",
         description="Bottom padding reserved for the grid when framing the camera",
-        default=4,
+        default=2,
         min=0,
         soft_max=50,
         subtype="PIXEL",
