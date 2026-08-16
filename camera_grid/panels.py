@@ -53,7 +53,8 @@ def draw_layout_section(layout, prefs):
         if prefs.settings.display_type == "THUMBNAILS":
             row = body.row(align=True)
             row.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
-            row.prop(prefs.settings, "preview_show_names", text="Names")
+            row.prop(prefs.settings, "auto_refresh_previews", text="Auto Refresh")
+            body.prop(prefs.settings, "preview_show_names", text="Show Names")
 
         body.separator()
         col = body.column(align=True)

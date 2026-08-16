@@ -4,7 +4,7 @@ import logging
 import time
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, PointerProperty
 from bpy.types import AddonPreferences, PropertyGroup
 
 from . import viewport_grid
@@ -77,6 +77,11 @@ def _update_display_type(self, context):
         viewport_grid.ThumbnailManager.invalidate()
 
 
+def _update_auto_refresh(self, context):
+    if not self.auto_refresh_previews:
+        viewport_grid.ThumbnailManager.cancel_auto_refresh()
+
+
 class CAMGRID_PG_settings(PropertyGroup):
     """Preferences for the Camera Grid."""
 
@@ -99,7 +104,7 @@ class CAMGRID_PG_settings(PropertyGroup):
             ("CENTER", "Center", "Center the grid horizontally"),
             ("RIGHT", "Right", "Align grid to the right side"),
         ],
-        default="CENTER",
+        default="LEFT",
     )
     max_rows: IntProperty(
         name="Max Rows",
@@ -179,6 +184,22 @@ class CAMGRID_PG_settings(PropertyGroup):
         min=1,
         soft_max=20,
         max=100,
+    )
+    auto_refresh_previews: BoolProperty(
+        name="Auto Refresh",
+        description="Re-render camera previews when camera data changes",
+        default=True,
+        update=_update_auto_refresh,
+    )
+    auto_refresh_delay: FloatProperty(
+        name="Refresh Delay",
+        description="Delay after camera changes before previews refresh",
+        default=0.3,
+        min=0.1,
+        max=5.0,
+        step=0.1,
+        precision=1,
+        unit="TIME_ABSOLUTE",
     )
     dots_max_rows: IntProperty(
         name="Dots Max Rows",
@@ -383,6 +404,9 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         col.prop(self.settings, "preview_cache_size", text="Cache Size")
         col.prop(self.settings, "preview_precache_rows", text="Pre-cache Rows")
         col.prop(self.settings, "preview_renders_per_tick", text="Renders per Tick")
+
+        col = layout.column()
+        col.prop(self.settings, "auto_refresh_delay", text="Auto-Refresh Delay")
 
         layout.label(text="Development")
         row = layout.row(align=True, heading="Console Logging")

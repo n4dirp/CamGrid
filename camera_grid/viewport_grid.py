@@ -39,8 +39,8 @@ logger = logging.getLogger(__package__)
 
 DOT_WIDTH = 18
 DOT_HEIGHT = 9
-TILE_HEIGHT = 24
-TILE_GAP = 4
+TILE_HEIGHT = 22
+TILE_GAP = 5
 BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 2
 HORIZONTAL_PADDING = 30
 SHADOW_OFFSET = 1
@@ -55,7 +55,7 @@ SCROLLBAR_MIN_THUMB = 8
 FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
-INFO_TEXT_OFFSET_Y = 18 + TILE_GAP
+INFO_TEXT_OFFSET_Y = 17 + TILE_GAP
 
 
 class _DragState(Enum):
@@ -182,6 +182,9 @@ class ThumbnailManager:
     preview_rendered_count: int = 0
     render_elapsed_ms: float = 0.0
 
+    auto_refresh_deadline: float = 0.0
+    auto_refresh_timer_active: bool = False
+
     original_shading_type: str | None = None
     original_show_overlays: bool | None = None
 
@@ -205,7 +208,27 @@ class ThumbnailManager:
 
         cls.original_shading_type = None
         cls.original_show_overlays = None
+        cls.cancel_auto_refresh()
         logger.debug("PREVIEW: Cache invalidated (gen %d)", cls.gen)
+
+    @classmethod
+    def schedule_auto_refresh(cls):
+        prefs = bpy.context.preferences.addons.get(__package__).preferences
+        delay = prefs.settings.auto_refresh_delay
+        cls.auto_refresh_deadline = time.monotonic() + delay
+        if not cls.auto_refresh_timer_active:
+            cls.auto_refresh_timer_active = True
+            bpy.app.timers.register(_auto_refresh_tick, first_interval=delay)
+
+    @classmethod
+    def cancel_auto_refresh(cls):
+        cls.auto_refresh_deadline = 0.0
+        if cls.auto_refresh_timer_active:
+            cls.auto_refresh_timer_active = False
+            try:
+                bpy.app.timers.unregister(_auto_refresh_tick)
+            except Exception:
+                pass
 
     @classmethod
     def queue_render(cls, cam_key: str):
@@ -488,11 +511,7 @@ def _get_scrollbar_layout(layout: GridLayout) -> ScrollbarLayout | None:
 
     sb_pad = SCROLLBAR_PADDING * layout.scale
     sb_w = SCROLLBAR_WIDTH * layout.scale
-    track_left = (
-        layout.origin_x - sb_pad - sb_w
-        if layout.grid_alignment == "LEFT"
-        else layout.origin_x + layout.grid_width + sb_pad
-    )
+    track_left = layout.origin_x + layout.grid_width + sb_pad
     track_h = layout.effective_max_rows * (layout.th + layout.gap) - layout.gap
 
     visible_rows = layout.effective_max_rows
@@ -500,7 +519,7 @@ def _get_scrollbar_layout(layout: GridLayout) -> ScrollbarLayout | None:
     thumb_h = max(track_h * thumb_ratio, SCROLLBAR_MIN_THUMB * layout.scale)
     max_scroll = layout.total_rows - visible_rows
 
-    thumb_t = layout.start_row / max_scroll if max_scroll > 0 else 0
+    thumb_t = 1.0 - layout.start_row / max_scroll if max_scroll > 0 else 0.0
     thumb_y = layout.origin_y + (track_h - thumb_h) * thumb_t
 
     hit_width = 12 * layout.scale
@@ -528,7 +547,7 @@ def _get_tile_at_mouse(layout: GridLayout, mouse_x: float, mouse_y: float) -> in
         column = i % layout.columns
         drawn_row = (i // layout.columns) - layout.start_row
         box_x = layout.origin_x + column * (layout.tw + layout.gap)
-        box_y = layout.origin_y + drawn_row * (layout.th + layout.gap)
+        box_y = layout.origin_y + (layout.visible_rows - 1 - drawn_row) * (layout.th + layout.gap)
 
         if box_x <= mouse_x <= box_x + layout.tw and box_y <= mouse_y <= box_y + layout.th:
             return i
@@ -542,10 +561,7 @@ def _is_mouse_in_grid(layout: GridLayout, mouse_x: float, mouse_y: float) -> boo
     grid_top = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
 
     if sb := _get_scrollbar_layout(layout):
-        if layout.grid_alignment == "LEFT":
-            grid_left = min(grid_left, sb.hit_left)
-        else:
-            grid_right = max(grid_right, sb.hit_right)
+        grid_right = max(grid_right, sb.hit_right)
 
     return grid_left <= mouse_x <= grid_right and grid_bottom <= mouse_y <= grid_top
 
@@ -616,6 +632,47 @@ def _get_camera_state_signature(cam: bpy.types.Object, scene: bpy.types.Scene) -
         getattr(cd, "shift_y", 0.0),
         getattr(cd, "ortho_scale", 0.0),
     )
+
+
+def _auto_refresh_tick():
+    """Debounced auto-refresh timer callback that queues stale thumbnails for re-render."""
+    if time.monotonic() >= ThumbnailManager.auto_refresh_deadline:
+        ThumbnailManager.auto_refresh_timer_active = False
+        _queue_stale_thumbnails()
+        return None
+    return max(0.0, ThumbnailManager.auto_refresh_deadline - time.monotonic())
+
+
+def _queue_stale_thumbnails():
+    """Queue re-renders for thumbnails the draw pass has marked as stale."""
+    if not ThumbnailManager.stale:
+        return
+    for cam_name in list(ThumbnailManager.stale):
+        if cam_name in ThumbnailManager.cache and cam_name not in ThumbnailManager.pending:
+            ThumbnailManager.queue_render(cam_name)
+    ThumbnailManager.stale.clear()
+    redraw_ui("VIEW_3D")
+
+
+def _depsgraph_update_post_handler(scene, depsgraph):
+    """Schedule a debounced thumbnail refresh when any camera object or data changes."""
+    if not any(s.enabled for s in GridState.areas.values()):
+        return
+    if not ThumbnailManager.cache and not ThumbnailManager.stale:
+        return
+    try:
+        settings = bpy.context.preferences.addons.get(__package__).preferences.settings
+    except (KeyError, AttributeError, ReferenceError):
+        return
+    if not (settings.auto_refresh_previews and settings.display_type == "THUMBNAILS"):
+        return
+    for upd in depsgraph.updates:
+        orig = getattr(getattr(upd, "id", None), "original", None)
+        if orig is None:
+            continue
+        if isinstance(orig, bpy.types.Camera) or getattr(orig, "type", None) == "CAMERA":
+            ThumbnailManager.schedule_auto_refresh()
+            return
 
 
 def _process_thumbnail_queue():
@@ -858,6 +915,9 @@ def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
             elif cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
                 ThumbnailManager.queue_render(cam.name)
 
+    if ThumbnailManager.stale and prefs.settings.auto_refresh_previews:
+        ThumbnailManager.schedule_auto_refresh()
+
 
 def _draw_background_panel(layout: GridLayout, colors: dict):
     bg_margin = layout.gap + 1
@@ -866,10 +926,7 @@ def _draw_background_panel(layout: GridLayout, colors: dict):
     g_bottom = layout.origin_y - bg_margin
     g_top = layout.origin_y + layout.th * layout.visible_rows + (layout.visible_rows - 1) * layout.gap + bg_margin
     if sb := _get_scrollbar_layout(layout):
-        if layout.grid_alignment == "LEFT":
-            g_left = sb.track_left - bg_margin
-        else:
-            g_right = sb.track_left + SCROLLBAR_WIDTH * layout.scale + bg_margin
+        g_right = sb.track_left + SCROLLBAR_WIDTH * layout.scale + bg_margin
 
     radius = layout.panel_radius * 1
     shadow_offset = SHADOW_OFFSET * layout.scale
@@ -904,7 +961,10 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = round(layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap))
-        y = round(layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap))
+        y = round(
+            layout.origin_y
+            + (layout.visible_rows - 1 - ((i // layout.columns) - layout.start_row)) * (layout.th + layout.gap)
+        )
 
         if y > layout.region.height or y + layout.th < 0:
             continue
@@ -984,7 +1044,9 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap)
-        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
+        y = layout.origin_y + (layout.visible_rows - 1 - ((i // layout.columns) - layout.start_row)) * (
+            layout.th + layout.gap
+        )
 
         if y > layout.region.height or y + layout.th < 0:
             continue
@@ -1003,7 +1065,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
         _draw_filled_rounded_rect(x, y - shadow_offset, layout.tw, layout.th, radius, (0.0, 0.0, 0.0, 0.4))
 
         # Draw the tile background
-        _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, base_col)
+        _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius * 1.25, base_col)
 
         # Draw the tile highlight (if hovered)
         if is_hovered:
@@ -1074,7 +1136,9 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
     for i in range(layout.start_index, layout.end_index):
         cam = layout.cameras[i]
         x = layout.origin_x + (i % layout.columns) * (layout.tw + layout.gap)
-        y = layout.origin_y + ((i // layout.columns) - layout.start_row) * (layout.th + layout.gap)
+        y = layout.origin_y + (layout.visible_rows - 1 - ((i // layout.columns) - layout.start_row)) * (
+            layout.th + layout.gap
+        )
 
         if y > layout.region.height or y + layout.th < 0:
             continue
@@ -1120,7 +1184,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         # Active Tile Overlay
         if is_active:
-            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.25))
+            _draw_filled_rounded_rect(x, y, layout.tw, layout.th, radius, _rgba(colors["tile_picked"], 0.15))
 
         # Hovered Tile Overlay
         if is_hovered:
@@ -1567,7 +1631,7 @@ class CAMGRID_OT_interactive_grid(Operator):
         if travel <= 0:
             return
         t = max(0.0, min(1.0, (my - sb.track_bottom - sb.thumb_h / 2) / travel))
-        new_row = round(t * sb.max_scroll)
+        new_row = round((1.0 - t) * sb.max_scroll)
         if state.current_start_row != new_row:
             state.current_start_row = new_row
             redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
@@ -1647,16 +1711,16 @@ class CAMGRID_OT_interactive_grid(Operator):
             bottom_edge = layout.origin_y
             top_edge = layout.origin_y + layout.visible_rows * (layout.th + layout.gap)
             now = time.monotonic()
-            if my < bottom_edge and state.current_start_row > 0 and now - GridState.drag_last_scroll_time > 0.12:
-                state.current_start_row -= 1
-                GridState.drag_last_scroll_time = now
-                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
-            elif (
-                my > top_edge
+            if (
+                my < bottom_edge
                 and state.current_start_row < (layout.total_rows - layout.visible_rows)
                 and now - GridState.drag_last_scroll_time > 0.12
             ):
                 state.current_start_row += 1
+                GridState.drag_last_scroll_time = now
+                redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
+            elif my > top_edge and state.current_start_row > 0 and now - GridState.drag_last_scroll_time > 0.12:
+                state.current_start_row -= 1
                 GridState.drag_last_scroll_time = now
                 redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
 
@@ -1769,7 +1833,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 state.current_start_row = max(
                     0,
                     min(
-                        old_row + (-1 if event_type == "WHEELDOWNMOUSE" else 1),
+                        old_row + (1 if event_type == "WHEELDOWNMOUSE" else -1),
                         max_scroll,
                     ),
                 )
@@ -1808,9 +1872,9 @@ class CAMGRID_OT_interactive_grid(Operator):
             case "RIGHT_ARROW":
                 new_idx = (idx + 1) % tot if prefs.settings.cycle_cameras else min(tot - 1, idx + 1)
             case "UP_ARROW":
-                new_idx = idx + cols if idx + cols < tot else idx
-            case "DOWN_ARROW":
                 new_idx = idx - cols if idx - cols >= 0 else idx
+            case "DOWN_ARROW":
+                new_idx = idx + cols if idx + cols < tot else idx
 
         if new_idx != idx and 0 <= new_idx < tot:
             context.scene.camera = layout.cameras[new_idx]
@@ -1951,10 +2015,15 @@ classes = (
 
 
 def register():
-    pass
+    bpy.app.handlers.depsgraph_update_post.append(_depsgraph_update_post_handler)
 
 
 def unregister():
+    ThumbnailManager.cancel_auto_refresh()
+    try:
+        bpy.app.handlers.depsgraph_update_post.remove(_depsgraph_update_post_handler)
+    except ValueError:
+        pass
     ThumbnailManager.invalidate()
     if GridState.handler is not None:
         try:
