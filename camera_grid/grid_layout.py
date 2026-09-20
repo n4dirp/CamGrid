@@ -107,7 +107,7 @@ def _has_info_content(prefs) -> bool:
         prefs.settings.show_active_camera_name
         or prefs.settings.show_camera_lens
         or prefs.settings.show_camera_sensor
-        or prefs.settings.show_camera_dof
+        or prefs.settings.show_camera_depth_of_field
         or prefs.settings.show_camera_clip
         or prefs.settings.show_camera_count
     )
@@ -138,7 +138,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
 
     prefs = context.preferences.addons.get(__package__).preferences
     view_layer = getattr(context, "view_layer", None)
-    if view_layer is not None and not prefs.settings.show_hidden:
+    if view_layer is not None and not prefs.settings.show_hidden_cameras:
         cameras = [cam for cam in cameras if cam.name in view_layer.objects]
 
     region = region or getattr(context, "region", None)
@@ -162,7 +162,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         except ReferenceError:
             return None
 
-    if not prefs.settings.show_hidden:
+    if not prefs.settings.show_hidden_cameras:
         cameras = [cam for cam in cameras if cam.visible_get()]
 
     total_cameras = len(cameras)
@@ -178,7 +178,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     left_overlap, right_overlap = _get_left_right_overlap(area)
     bottom_header_height = _get_bottom_header_height(area)
 
-    if prefs.settings.display_type == "THUMBNAILS":
+    if prefs.settings.display_mode == "THUMBNAILS":
         render = scene.render
         aspect = (render.resolution_x * render.pixel_aspect_x) / (render.resolution_y * render.pixel_aspect_y)
         max_side = prefs.settings.preview_size
@@ -187,7 +187,7 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         )
         tw, th = preview_w * scale, preview_h * scale
         effective_max_rows = prefs.settings.preview_max_rows
-    elif prefs.settings.display_type == "DOTS":
+    elif prefs.settings.display_mode == "DOTS":
         tw = DOT_WIDTH * scale
         th = DOT_HEIGHT * scale
         effective_max_rows = prefs.settings.dots_max_rows
@@ -230,9 +230,9 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     max_cols = max(1, int(max_available_width / (tw + gap)))
     max_cols_pref = (
         prefs.settings.preview_max_columns
-        if prefs.settings.display_type == "THUMBNAILS"
+        if prefs.settings.display_mode == "THUMBNAILS"
         else prefs.settings.dots_max_columns
-        if prefs.settings.display_type == "DOTS"
+        if prefs.settings.display_mode == "DOTS"
         else prefs.settings.max_columns
     )
     max_cols = min(max_cols, max_cols_pref)

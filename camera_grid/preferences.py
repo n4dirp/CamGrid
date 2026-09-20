@@ -31,7 +31,7 @@ def _update_logger_from_prefs():
     level = "INFO"
     try:
         prefs = bpy.context.preferences.addons.get(__package__).preferences
-        enabled = getattr(prefs, "logging_enabled", False)
+        enabled = getattr(prefs, "use_console_logging", False)
         level = getattr(prefs, "logging_level", "INFO")
     except (KeyError, AttributeError, ReferenceError):
         pass
@@ -70,15 +70,15 @@ class AddonLogFormatter(logging.Formatter):
         return f"{timestamp}  {short_name:<16} | {record.getMessage()}"
 
 
-def _update_display_type(self, context):
-    if self.display_type == "THUMBNAILS":
+def _update_display_mode(self, context):
+    if self.display_mode == "THUMBNAILS":
         viewport_grid.refresh_thumbnail_cache()
     else:
         viewport_grid.ThumbnailManager.invalidate()
 
 
 def _update_auto_refresh(self, context):
-    if not self.auto_refresh_previews:
+    if not self.use_preview_auto_refresh:
         viewport_grid.ThumbnailManager.cancel_auto_refresh()
 
 
@@ -93,7 +93,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         max=1.0,
         subtype="FACTOR",
     )
-    display_type: EnumProperty(
+    display_mode: EnumProperty(
         name="Display Type",
         description="Camera grid tile display mode",
         items=[
@@ -102,7 +102,7 @@ class CAMGRID_PG_settings(PropertyGroup):
             ("THUMBNAILS", "Thumbnails", "Show camera viewport preview thumbnails", "IMGDISPLAY", 2),
         ],
         default="TILES",
-        update=_update_display_type,
+        update=_update_display_mode,
     )
     alignment: EnumProperty(
         name="Grid Alignment",
@@ -160,13 +160,13 @@ class CAMGRID_PG_settings(PropertyGroup):
         max=1024,
         subtype="PIXEL",
     )
-    preview_disable_overlays: BoolProperty(
+    use_hide_overlays_in_preview: BoolProperty(
         name="Disable Overlays",
         description="Temporarily disable viewport overlays while rendering preview thumbnails",
         default=True,
-        update=_update_display_type,
+        update=_update_display_mode,
     )
-    preview_show_names: BoolProperty(
+    show_preview_names: BoolProperty(
         name="Show Names",
         description="Display camera names on tiles in preview mode",
         default=True,
@@ -193,7 +193,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         soft_max=20,
         max=100,
     )
-    auto_refresh_previews: BoolProperty(
+    use_preview_auto_refresh: BoolProperty(
         name="Auto Refresh",
         description="Re-render camera previews when camera data changes",
         default=True,
@@ -209,7 +209,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         precision=1,
         unit="TIME_ABSOLUTE",
     )
-    auto_refresh_shading: EnumProperty(
+    auto_refresh_shading_mode: EnumProperty(
         name="",
         description="Viewport shading types allowed to trigger preview auto-refresh",
         items=[
@@ -232,12 +232,12 @@ class CAMGRID_PG_settings(PropertyGroup):
         min=1,
         soft_max=50,
     )
-    filter_camera_collections: BoolProperty(
+    use_filter_camera_collections: BoolProperty(
         name="Filter Camera Collections",
         description="Only show collections containing cameras",
         default=True,
     )
-    show_hidden: BoolProperty(
+    show_hidden_cameras: BoolProperty(
         name="Show Hidden",
         description="Display hidden cameras in the grid",
         default=False,
@@ -252,7 +252,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Show the camera sensor size in the info text",
         default=True,
     )
-    show_camera_dof: BoolProperty(
+    show_camera_depth_of_field: BoolProperty(
         name="Show Depth of Field",
         description="Show the camera depth of field settings in the info text",
         default=True,
@@ -272,7 +272,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Show the camera count in the info text",
         default=False,
     )
-    on_switch_action: EnumProperty(
+    switch_action: EnumProperty(
         name="On Switch",
         description="Action to perform when selecting a camera from the grid",
         items=[
@@ -282,7 +282,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         ],
         default="FRAME",
     )
-    cycle_cameras: BoolProperty(
+    use_camera_cycling: BoolProperty(
         name="Cycle Cameras",
         description="Wrap around when reaching the start or end of the camera list",
         default=False,
@@ -296,7 +296,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         ],
         default="CAMERA",
     )
-    select_with_right_click: BoolProperty(
+    use_right_click_select: BoolProperty(
         name="Select with Right Click",
         description=("Use right-click to select cameras and left-click to switch. Disable to swap the roles"),
         default=True,
@@ -325,12 +325,22 @@ class CAMGRID_PG_settings(PropertyGroup):
         soft_max=50,
         subtype="PIXEL",
     )
-    frame_grid_padding: BoolProperty(
+    use_frame_grid_padding: BoolProperty(
         name="Grid Padding",
         description="Reserve camera grid height as bottom padding when framing the camera",
         default=True,
     )
-    close_on_esc: BoolProperty(
+    use_frame_toolbar_margin: BoolProperty(
+        name="Toolbar Margin",
+        description="Reserve the toolbar width when framing the camera",
+        default=True,
+    )
+    use_frame_sidebar_margin: BoolProperty(
+        name="Sidebar Margin",
+        description="Reserve the sidebar width when framing the camera",
+        default=True,
+    )
+    use_escape_to_close: BoolProperty(
         name="Close Grid with ESC",
         description="Press ESC to close the camera grid overlay",
         default=False,
@@ -349,7 +359,7 @@ class CAMGRID_PG_settings(PropertyGroup):
 def _poll_collection_with_cameras(self, obj):
     """Only show collections that contain at least one camera when filter is enabled."""
     prefs = bpy.context.preferences.addons.get(__package__).preferences
-    if not prefs.settings.filter_camera_collections:
+    if not prefs.settings.use_filter_camera_collections:
         return True
     return any(o.type == "CAMERA" for o in obj.all_objects)
 
@@ -368,7 +378,7 @@ class CAMGRID_AddonPreferences(AddonPreferences):
 
     settings: PointerProperty(type=CAMGRID_PG_settings)
 
-    logging_enabled: BoolProperty(
+    use_console_logging: BoolProperty(
         name="Console Logging",
         description="Print addon messages to the system console",
         default=False,
@@ -418,7 +428,7 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         if needs_restore:
             layout.operator("camgrid.restore_grid_keymap", text="Restore Default Shortcuts")
 
-        layout.prop(self.settings, "close_on_esc", text="Exit with Escape Key")
+        layout.prop(self.settings, "use_escape_to_close", text="Exit with Escape Key")
 
         layout.separator()
         col = layout.column(align=True)
@@ -432,9 +442,9 @@ class CAMGRID_AddonPreferences(AddonPreferences):
 
         layout.label(text="Development")
         row = layout.row(align=True, heading="Console Logging")
-        row.prop(self, "logging_enabled", text="")
+        row.prop(self, "use_console_logging", text="")
         sub = row.row(align=True)
-        sub.active = self.logging_enabled
+        sub.active = self.use_console_logging
         sub.prop(self, "logging_level", text="")
 
 

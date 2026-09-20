@@ -354,7 +354,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
             _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, border_col, line_width)
 
         # Tile Camera Name
-        if prefs.settings.preview_show_names:
+        if prefs.settings.show_preview_names:
             text = cam.name
             if blf.dimensions(font_id, text)[0] > max_t_w:
                 max_w_no_ell = max_t_w - ellipsis_width
@@ -393,10 +393,10 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
 def _draw_camera_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
     """Dispatch to the appropriate display-type draw function."""
-    display_type = prefs.settings.display_type
-    if display_type == "THUMBNAILS":
+    display_mode = prefs.settings.display_mode
+    if display_mode == "THUMBNAILS":
         _draw_thumbnail_tiles(layout, colors, prefs, active_scene)
-    elif display_type == "TILES":
+    elif display_mode == "TILES":
         _draw_label_tiles(layout, colors)
     else:  # DOTS
         _draw_dot_tiles(layout, colors)
@@ -476,7 +476,7 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
                 if sensor_h > 0:
                     parts.append(f"Sensor: {sensor_h:g} mm")
 
-            if prefs.settings.show_camera_dof:
+            if prefs.settings.show_camera_depth_of_field:
                 dof = getattr(data, "dof", None)
                 if dof and getattr(dof, "use_dof", False):
                     fstop = getattr(dof, "aperture_fstop", 0)

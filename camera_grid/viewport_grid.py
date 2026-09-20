@@ -53,9 +53,9 @@ def _switch_to_camera_view(context: Context, area=None):
             space.region_3d.view_perspective = "CAMERA"
 
 
-def _apply_on_switch_action(context, area=None, region=None):
+def _apply_switch_action(context, area=None, region=None):
     prefs = context.preferences.addons.get(__package__).preferences
-    match prefs.settings.on_switch_action:
+    match prefs.settings.switch_action:
         case "CAMERA_VIEW":
             _switch_to_camera_view(context, area)
         case "FRAME":
@@ -71,14 +71,14 @@ def _apply_on_switch_action(context, area=None, region=None):
 
 def _get_select_button(prefs) -> str:
     """Return the mouse button that selects cameras."""
-    return "RIGHTMOUSE" if prefs.settings.select_with_right_click else "LEFTMOUSE"
+    return "RIGHTMOUSE" if prefs.settings.use_right_click_select else "LEFTMOUSE"
 
 
 def _action_switch_camera(layout: GridLayout, tile_index: int, context=None, area=None, region=None):
     context = context or bpy.context
     if 0 <= tile_index < len(layout.cameras):
         context.scene.camera = layout.cameras[tile_index]
-    _apply_on_switch_action(context, area, region)
+    _apply_switch_action(context, area, region)
 
 
 def _action_select_camera(layout: GridLayout, tile_index: int):
@@ -252,7 +252,7 @@ class CAMGRID_OT_interactive_grid(Operator):
         match event_type:
             case "ESC" if event.value == "PRESS":
                 prefs = context.preferences.addons.get(__package__).preferences
-                if prefs.settings.close_on_esc:
+                if prefs.settings.use_escape_to_close:
                     layout = _compute_grid_layout(context, area=area, region=region)
                     if layout and _is_mouse_in_grid(layout, mx, my):
                         with context.temp_override(window=context.window, area=area, region=region):
@@ -279,7 +279,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 layout = _compute_grid_layout(context, area=area, region=region)
                 if layout and _is_mouse_in_grid(layout, mx, my):
                     prefs = context.preferences.addons.get(__package__).preferences
-                    if prefs.settings.display_type == "THUMBNAILS":
+                    if prefs.settings.display_mode == "THUMBNAILS":
                         try:
                             bpy.ops.camgrid.refresh_previews("INVOKE_DEFAULT")
                         except Exception:
@@ -288,7 +288,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 return {"PASS_THROUGH"}
 
             case "ONE" | "TWO" | "THREE" if event.value == "PRESS" and event.ctrl and event.shift:
-                return self._handle_display_type_switch(context, event, event_type, state, area, region, mx, my)
+                return self._handle_display_mode_switch(context, event, event_type, state, area, region, mx, my)
             case _:
                 return {"PASS_THROUGH"}
 
@@ -438,7 +438,7 @@ class CAMGRID_OT_interactive_grid(Operator):
             )
             if cam != layout.active_camera:
                 context.scene.camera = cam
-            _apply_on_switch_action(context, area, region)
+            _apply_switch_action(context, area, region)
 
             return {"RUNNING_MODAL"}
 
@@ -484,9 +484,9 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if event.ctrl:
             delta = 8 if event_type == "WHEELUPMOUSE" else -8
-            if prefs.settings.display_type == "THUMBNAILS":
+            if prefs.settings.display_mode == "THUMBNAILS":
                 prefs.settings.preview_size = max(64, min(512, prefs.settings.preview_size + delta))
-            elif prefs.settings.display_type == "DOTS":
+            elif prefs.settings.display_mode == "DOTS":
                 return {"RUNNING_MODAL"}
             else:
                 prefs.settings.tile_size = max(60, min(512, prefs.settings.tile_size + delta))
@@ -514,14 +514,14 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"RUNNING_MODAL"}
 
         delta = 1 if event_type == "WHEELUPMOUSE" else -1
-        if prefs.settings.cycle_cameras:
+        if prefs.settings.use_camera_cycling:
             new_idx = (layout.active_index + delta) % layout.total_cameras
         else:
             new_idx = max(0, min(layout.total_cameras - 1, layout.active_index + delta))
 
         if new_idx != layout.active_index and 0 <= new_idx < layout.total_cameras:
             context.scene.camera = layout.cameras[new_idx]
-            _apply_on_switch_action(context, area, region)
+            _apply_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
     def _handle_arrow(
@@ -540,9 +540,9 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         match event_type:
             case "LEFT_ARROW":
-                new_idx = (idx - 1 + tot) % tot if prefs.settings.cycle_cameras else max(0, idx - 1)
+                new_idx = (idx - 1 + tot) % tot if prefs.settings.use_camera_cycling else max(0, idx - 1)
             case "RIGHT_ARROW":
-                new_idx = (idx + 1) % tot if prefs.settings.cycle_cameras else min(tot - 1, idx + 1)
+                new_idx = (idx + 1) % tot if prefs.settings.use_camera_cycling else min(tot - 1, idx + 1)
             case "UP_ARROW":
                 new_idx = idx - cols if idx - cols >= 0 else idx
             case "DOWN_ARROW":
@@ -550,10 +550,10 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         if new_idx != idx and 0 <= new_idx < tot:
             context.scene.camera = layout.cameras[new_idx]
-            _apply_on_switch_action(context, area, region)
+            _apply_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
-    def _handle_display_type_switch(
+    def _handle_display_mode_switch(
         self, context: Context, event: Event, event_type: str, state: AreaGridState, area, region, mx: float, my: float
     ):
         if GridState.drag_state != _DragState.IDLE:
@@ -563,8 +563,8 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"PASS_THROUGH"}
         prefs = context.preferences.addons.get(__package__).preferences
         new_type = {"ONE": "DOTS", "TWO": "TILES", "THREE": "THUMBNAILS"}[event_type]
-        if prefs.settings.display_type != new_type:
-            prefs.settings.display_type = new_type
+        if prefs.settings.display_mode != new_type:
+            prefs.settings.display_mode = new_type
             redraw_ui("VIEW_3D", area_pointer=state.target_area_pointer)
         return {"RUNNING_MODAL"}
 
@@ -616,7 +616,7 @@ class CAMGRID_OT_frame_camera(Operator):
                 + layout.visible_rows * (layout.th + layout.gap)
                 + prefs.settings.frame_bottom_padding * scale
             )
-            if layout and prefs.settings.frame_grid_padding
+            if layout and prefs.settings.use_frame_grid_padding
             else prefs.settings.frame_bottom_padding * scale
         )
 
@@ -624,6 +624,10 @@ class CAMGRID_OT_frame_camera(Operator):
         grid_frac = min(0.6, grid_top / float(region.height))
 
         left_overlap, right_overlap = _get_left_right_overlap(context.area)
+        if not prefs.settings.use_frame_toolbar_margin:
+            left_overlap = 0
+        if not prefs.settings.use_frame_sidebar_margin:
+            right_overlap = 0
         avail_w = max(
             1.0,
             float(region.width) - left_overlap - right_overlap - prefs.settings.frame_horizontal_padding * scale,

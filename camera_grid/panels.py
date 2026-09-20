@@ -20,8 +20,8 @@ def draw_filter_section(layout, prefs, props):
         else:
             sub = body.row()
 
-        sub.prop(prefs.settings, "filter_camera_collections", text="Camera Collections")
-        sub.prop(prefs.settings, "show_hidden", text="Hidden Cameras")
+        sub.prop(prefs.settings, "use_filter_camera_collections", text="Camera Collections")
+        sub.prop(prefs.settings, "show_hidden_cameras", text="Hidden Cameras")
 
 
 def draw_layout_section(layout, prefs):
@@ -34,14 +34,14 @@ def draw_layout_section(layout, prefs):
 
         col.separator()
         col.label(text="Display Mode")
-        col.prop(prefs.settings, "display_type", text="Display Mode", expand=True)
+        col.prop(prefs.settings, "display_mode", text="Display Mode", expand=True)
 
         sub = body.column(align=True)
-        if prefs.settings.display_type == "THUMBNAILS":
+        if prefs.settings.display_mode == "THUMBNAILS":
             sub.prop(prefs.settings, "preview_size", text="Size")
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
             sub.prop(prefs.settings, "preview_max_columns", text="Max Columns")
-        elif prefs.settings.display_type == "DOTS":
+        elif prefs.settings.display_mode == "DOTS":
             sub.prop(prefs.settings, "dots_max_rows", text="Max Rows")
             sub.prop(prefs.settings, "dots_max_columns", text="Max Columns")
         else:
@@ -49,18 +49,18 @@ def draw_layout_section(layout, prefs):
             sub.prop(prefs.settings, "max_rows", text="Max Rows")
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
-        if prefs.settings.display_type == "THUMBNAILS":
+        if prefs.settings.display_mode == "THUMBNAILS":
             row = body.row(align=True)
-            row.prop(prefs.settings, "preview_disable_overlays", text="Hide Overlays")
-            row.prop(prefs.settings, "preview_show_names", text="Show Names")
+            row.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
+            row.prop(prefs.settings, "show_preview_names", text="Show Names")
 
             col = body.column()
             col.label(text="Auto Refresh")
             row = col.row(align=True)
-            row.prop(prefs.settings, "auto_refresh_previews", text="")
+            row.prop(prefs.settings, "use_preview_auto_refresh", text="")
             sub = row.row(align=True)
-            sub.active = prefs.settings.auto_refresh_previews
-            sub.prop(prefs.settings, "auto_refresh_shading", text="")
+            sub.active = prefs.settings.use_preview_auto_refresh
+            sub.prop(prefs.settings, "auto_refresh_shading_mode", text="")
 
         body.separator()
         col = body.column(align=True)
@@ -70,7 +70,7 @@ def draw_layout_section(layout, prefs):
         row.prop(prefs.settings, "show_camera_lens", text="Lens")
         row.prop(prefs.settings, "show_camera_sensor", text="Sensor")
         row = col.row(align=True)
-        row.prop(prefs.settings, "show_camera_dof", text="DoF")
+        row.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
         row.prop(prefs.settings, "show_camera_clip", text="Clip")
         row.prop(prefs.settings, "show_camera_count", text="Count")
 
@@ -89,12 +89,12 @@ def draw_interaction_section(layout, prefs):
 
         col = body.column()
         col.label(text="On Switch")
-        col.row().prop(prefs.settings, "on_switch_action", text="")
+        col.row().prop(prefs.settings, "switch_action", text="")
 
         body.separator()
         row = body.row(align=True)
-        row.prop(prefs.settings, "cycle_cameras", text="Cycle Switch")
-        row.prop(prefs.settings, "select_with_right_click", text="Right Click to Select")
+        row.prop(prefs.settings, "use_camera_cycling", text="Cycle Switch")
+        row.prop(prefs.settings, "use_right_click_select", text="Right Click to Select")
 
 
 def draw_frame_camera_section(layout, prefs):
@@ -108,7 +108,11 @@ def draw_frame_camera_section(layout, prefs):
         col.prop(prefs.settings, "frame_bottom_padding", text="Bottom")
 
         col = body.column()
-        col.prop(prefs.settings, "frame_grid_padding", text="Reserve Grid Space")
+        col.label(text="Reserve Margin")
+        row = col.row()
+        row.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
+        row.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
+        row.prop(prefs.settings, "use_frame_grid_padding", text="Grid")
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +163,7 @@ class CAMGRID_PT_grid_sidebar(Panel):
 
         col = layout.column(align=True)
         col.operator("camgrid.toggle_grid", icon="IMGDISPLAY", depress=grid_active)
-        if grid_active and prefs.settings.display_type == "THUMBNAILS":
+        if grid_active and prefs.settings.display_mode == "THUMBNAILS":
             col.operator("camgrid.refresh_previews", icon="FILE_REFRESH")
         layout.operator("camgrid.frame_camera", icon="MOD_LENGTH")
 
@@ -181,7 +185,7 @@ def draw_grid_header_button(self, context):
 
     row = layout.row(align=True)
     row.operator("camgrid.toggle_grid", text="", icon="IMGDISPLAY", depress=grid_active)
-    if grid_active and prefs.settings.display_type == "THUMBNAILS":
+    if grid_active and prefs.settings.display_mode == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
     row.operator("camgrid.frame_camera", text="", icon="MOD_LENGTH")
     row.popover("CAMGRID_PT_grid_popup", text="")

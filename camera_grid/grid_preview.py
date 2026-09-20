@@ -172,7 +172,7 @@ def _queue_stale_thumbnails():
     if not ThumbnailManager.stale:
         return
     prefs = bpy.context.preferences.addons.get(__package__).preferences
-    if prefs.settings.auto_refresh_shading == "SKIP_RENDERED":
+    if prefs.settings.auto_refresh_shading_mode == "SKIP_RENDERED":
         found = _find_thumbnail_render_area(bpy.context, prefer_non_rendered=True)
         if not found or found[0].spaces.active.shading.type == "RENDERED":
             logger.debug("PREVIEW: Skipping auto-refresh, all grid viewports use Rendered shading")
@@ -195,7 +195,7 @@ def _depsgraph_update_post_handler(scene, depsgraph):
         settings = bpy.context.preferences.addons.get(__package__).preferences.settings
     except (KeyError, AttributeError, ReferenceError):
         return
-    if not (settings.auto_refresh_previews and settings.display_type == "THUMBNAILS"):
+    if not (settings.use_preview_auto_refresh and settings.display_mode == "THUMBNAILS"):
         return
     for upd in depsgraph.updates:
         orig = getattr(getattr(upd, "id", None), "original", None)
@@ -257,7 +257,7 @@ def _process_thumbnail_queue():
             space_view3d.shading.type = "SOLID"
             logger.debug("PREVIEW: Temporarily switched shading to SOLID")
 
-        if prefs.settings.preview_disable_overlays:
+        if prefs.settings.use_hide_overlays_in_preview:
             ThumbnailManager.original_show_overlays = space_view3d.overlay.show_overlays
             if ThumbnailManager.original_show_overlays:
                 space_view3d.overlay.show_overlays = False
@@ -402,7 +402,7 @@ def _evict_orphaned_thumbnails(cameras: list[bpy.types.Object]):
 
 
 def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
-    if prefs.settings.display_type != "THUMBNAILS":
+    if prefs.settings.display_mode != "THUMBNAILS":
         return
 
     missing_visible = False
@@ -440,7 +440,7 @@ def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
             elif cam.name not in ThumbnailManager.pending and not ThumbnailManager.in_preview_render:
                 ThumbnailManager.queue_render(cam.name)
 
-    if ThumbnailManager.stale and prefs.settings.auto_refresh_previews:
+    if ThumbnailManager.stale and prefs.settings.use_preview_auto_refresh:
         ThumbnailManager.schedule_auto_refresh()
 
 
