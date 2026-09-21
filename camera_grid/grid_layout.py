@@ -23,6 +23,7 @@ DOT_WIDTH = 18
 DOT_HEIGHT = 9
 TILE_HEIGHT = 22
 TILE_GAP = 5
+PANEL_PADDING = 7
 BOTTOM_MARGIN = TILE_HEIGHT + TILE_GAP + 4
 HORIZONTAL_PADDING = 30
 SHADOW_OFFSET = 1
@@ -30,8 +31,7 @@ SHADOW_OFFSET = 1
 GRID_TOP_SAFE_ZONE = 140
 
 SCROLLBAR_WIDTH = 4
-SCROLLBAR_WIDTH_HOVER = 6
-SCROLLBAR_PADDING = TILE_GAP
+SCROLLBAR_WIDTH_HOVER = 8
 SCROLLBAR_MIN_THUMB = 8
 
 FONT_SIZE = 11
@@ -86,7 +86,7 @@ class GridLayout:
 class ScrollbarLayout:
     """Stores precomputed geometry and metrics for the scrollbar."""
 
-    track_left: float
+    track_right: float
     track_bottom: float
     track_top: float
     track_h: float
@@ -312,9 +312,8 @@ def _get_scrollbar_layout(layout: GridLayout) -> ScrollbarLayout | None:
     if layout.total_rows <= layout.effective_max_rows:
         return None
 
-    sb_pad = SCROLLBAR_PADDING * layout.scale
     sb_w = SCROLLBAR_WIDTH * layout.scale
-    track_left = layout.origin_x + layout.grid_width + sb_pad
+    track_right = layout.origin_x + layout.grid_width + sb_w + 1 * layout.scale
     track_h = layout.effective_max_rows * (layout.th + layout.gap) - layout.gap
 
     visible_rows = layout.effective_max_rows
@@ -326,16 +325,17 @@ def _get_scrollbar_layout(layout: GridLayout) -> ScrollbarLayout | None:
     thumb_y = layout.origin_y + (track_h - thumb_h) * thumb_t
 
     hit_width = 12 * layout.scale
-    hit_left = track_left - (hit_width - sb_w) / 2
+    hit_right = track_right + 2 * layout.scale
+    hit_left = hit_right - hit_width
     return ScrollbarLayout(
-        track_left=track_left,
+        track_right=track_right,
         track_bottom=layout.origin_y,
         track_top=layout.origin_y + track_h,
         track_h=track_h,
         thumb_y=thumb_y,
         thumb_h=thumb_h,
         hit_left=hit_left,
-        hit_right=hit_left + hit_width,
+        hit_right=hit_right,
         max_scroll=max_scroll,
     )
 

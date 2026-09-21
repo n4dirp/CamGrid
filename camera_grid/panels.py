@@ -32,11 +32,12 @@ def draw_layout_section(layout, prefs):
         col.label(text="Alignment")
         col.row().prop(prefs.settings, "alignment", expand=True)
 
-        col.separator()
+        col = body.column()
         col.label(text="Display Mode")
         col.prop(prefs.settings, "display_mode", text="Display Mode", expand=True)
 
         sub = body.column(align=True)
+        sub.label(text="Options")
         if prefs.settings.display_mode == "THUMBNAILS":
             sub.prop(prefs.settings, "preview_size", text="Size")
             sub.prop(prefs.settings, "preview_max_rows", text="Max Rows")
@@ -80,7 +81,7 @@ def draw_layout_section(layout, prefs):
 
 def draw_interaction_section(layout, prefs):
     header, body = layout.panel("CAMGRID_PT_camera_grid_interaction", default_closed=True)
-    header.label(text="Options")
+    header.label(text="Behavior")
 
     if body:
         col = body.column()

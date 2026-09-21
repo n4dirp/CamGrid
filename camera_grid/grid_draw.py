@@ -19,10 +19,10 @@ from .grid_layout import (
     BADGE_FONT_ID,
     FONT_ID,
     FONT_SIZE,
+    PANEL_PADDING,
     SCROLLBAR_WIDTH,
     SCROLLBAR_WIDTH_HOVER,
     SHADOW_OFFSET,
-    TILE_GAP,
     GridLayout,
     _compute_grid_layout,
     _get_scrollbar_layout,
@@ -39,13 +39,11 @@ from .helpers import _alpha_mul, _rgba
 
 
 def _draw_background_panel(layout: GridLayout, colors: dict):
-    bg_margin = layout.gap + 1
+    bg_margin = PANEL_PADDING * layout.scale
     g_left = layout.origin_x - bg_margin
     g_right = layout.origin_x + layout.grid_width + bg_margin
     g_bottom = layout.origin_y - bg_margin
     g_top = layout.origin_y + layout.th * layout.visible_rows + (layout.visible_rows - 1) * layout.gap + bg_margin
-    if sb := _get_scrollbar_layout(layout):
-        g_right = sb.track_left + SCROLLBAR_WIDTH * layout.scale + bg_margin
 
     radius = layout.panel_radius * 1
     shadow_offset = SHADOW_OFFSET * layout.scale
@@ -258,8 +256,8 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
     line_width = 0.5 * layout.scale
     radius = 0
     ellipsis_width = blf.dimensions(font_id, "...")[0]
-    badge_pad = 4 * layout.scale
-    max_t_w = layout.tw - 12 * layout.scale
+    badge_pad = 3 * layout.scale
+    max_t_w = layout.tw - (badge_pad * 2) * layout.scale
     badge_font_size = max(6, int(FONT_SIZE * layout.scale))
     shadow_offset = SHADOW_OFFSET * layout.scale
 
@@ -369,11 +367,11 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 text = text[:left] + "..." + text[right:]
 
             btw, bth = (blf.dimensions(BADGE_FONT_ID, text)[0], 8 * layout.scale)
-            bw, bh = btw + badge_pad * 2, bth + badge_pad * 2
+            bw, _ = btw + badge_pad * 2, bth + badge_pad * 2
             bx, by = x + round((layout.tw - bw) / 2), y + badge_pad
 
-            bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
-            _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5 * layout.master_alpha))
+            # bg_col = colors["tile_picked"] if is_active else colors["tile_default"]
+            # _draw_filled_rounded_rect(bx, by, bw, bh, badge_pad, _rgba(bg_col, 0.5 * layout.master_alpha))
 
             if selected:
                 text_color = colors["border_active"] if is_active_obj else colors["border_selected"]
@@ -406,15 +404,10 @@ def _draw_scrollbar(layout: GridLayout, colors: dict):
     if layout.total_rows <= layout.effective_max_rows:
         return
     if sb := _get_scrollbar_layout(layout):
-        sb_w = SCROLLBAR_WIDTH * layout.scale
         is_hovered = layout.scrollbar_hovered
-        if is_hovered:
-            sb_w_hover = SCROLLBAR_WIDTH_HOVER * layout.scale
-            bar_left = sb.track_left + (sb_w - sb_w_hover) / 2
-            bar_right = bar_left + sb_w_hover
-        else:
-            bar_left = sb.track_left
-            bar_right = bar_left + sb_w
+        bar_right = sb.track_right
+        bar_width = (SCROLLBAR_WIDTH_HOVER if is_hovered else SCROLLBAR_WIDTH) * layout.scale
+        bar_left = bar_right - bar_width
         alpha = 1.0 if is_hovered else 0.6
         color = _rgba(colors["scroll_bar"], alpha * layout.master_alpha)
         _draw_pill(
@@ -526,14 +519,12 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
 
     info_text = " | ".join(parts)
     iw, _ = blf.dimensions(font_id, info_text)
-    gap = TILE_GAP * layout.scale
+    gap = PANEL_PADDING * layout.scale
 
     if layout.grid_alignment == "LEFT":
         ix = layout.origin_x - gap
     elif layout.grid_alignment == "RIGHT":
         ix = layout.origin_x + layout.grid_width - iw + gap
-        if _get_scrollbar_layout(layout):
-            ix += SCROLLBAR_WIDTH * layout.scale + gap
     else:
         ix = layout.origin_x + (layout.grid_width - iw) / 2
 
