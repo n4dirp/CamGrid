@@ -5,6 +5,7 @@ import math
 import time
 
 import bpy
+from bpy.app.handlers import persistent
 from bpy.types import Context, Event, Operator
 
 from .grid_draw import _draw_grid
@@ -137,7 +138,8 @@ def _full_cleanup():
     GridState.reset()
 
 
-def _load_post_handler(_scene):
+@persistent
+def _load_post_handler(_dummy):
     """Clear thumbnail cache and grid state when a new blend file is loaded."""
     _full_cleanup()
 

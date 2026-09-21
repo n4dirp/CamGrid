@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0] - [Unreleased]
+
+### Added
+- Added Toolbar and Sidebar toggles to Reserve Margin in Frame Camera
+
+### Fixed
+- Fixed stale camera previews showing after opening a different blend file with matching camera names
+
 ## [1.4.0] - 2026-08-15
 
 ### Added

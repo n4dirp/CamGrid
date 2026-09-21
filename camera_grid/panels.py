@@ -20,8 +20,8 @@ def draw_filter_section(layout, prefs, props):
         else:
             sub = body.row()
 
-        sub.prop(prefs.settings, "use_filter_camera_collections", text="Camera Collections")
-        sub.prop(prefs.settings, "show_hidden_cameras", text="Hidden Cameras")
+        sub.prop(prefs.settings, "use_filter_camera_collections", text="Filter Collections")
+        sub.prop(prefs.settings, "show_hidden_cameras", text="Show Hidden Cameras")
 
 
 def draw_layout_section(layout, prefs):
@@ -65,7 +65,7 @@ def draw_layout_section(layout, prefs):
 
         body.separator()
         col = body.column(align=True)
-        col.label(text="Text")
+        col.label(text="Info Text")
         row = col.row(align=True)
         row.prop(prefs.settings, "show_active_camera_name", text="Name")
         row.prop(prefs.settings, "show_camera_lens", text="Lens")
@@ -93,9 +93,9 @@ def draw_interaction_section(layout, prefs):
         col.row().prop(prefs.settings, "switch_action", text="")
 
         body.separator()
-        row = body.row(align=True)
-        row.prop(prefs.settings, "use_camera_cycling", text="Cycle Switch")
-        row.prop(prefs.settings, "use_right_click_select", text="Right Click to Select")
+        col = body.column(align=True)
+        col.prop(prefs.settings, "use_camera_cycling", text="Cycle Switch")
+        col.prop(prefs.settings, "use_right_click_select", text="Select with Right Click")
 
 
 def draw_frame_camera_section(layout, prefs):
@@ -109,7 +109,7 @@ def draw_frame_camera_section(layout, prefs):
         col.prop(prefs.settings, "frame_bottom_padding", text="Bottom")
 
         col = body.column()
-        col.label(text="Reserve Margin")
+        col.label(text="Reserve Margin Space")
         row = col.row()
         row.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
         row.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
