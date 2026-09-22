@@ -107,9 +107,7 @@ def draw_frame_camera_section(layout, prefs):
         col.prop(prefs.settings, "frame_horizontal_padding", text="Horizontal")
         col.prop(prefs.settings, "frame_bottom_padding", text="Bottom")
 
-        col = body.column()
-        col.label(text="Reserve Margin Space")
-        row = col.row()
+        row = body.row()
         row.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
         row.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
         row.prop(prefs.settings, "use_frame_grid_padding", text="Grid")

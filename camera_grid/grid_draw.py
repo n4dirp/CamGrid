@@ -260,10 +260,11 @@ def _draw_label_tiles(layout: GridLayout, colors: dict, prefs):
         icon_x = x + layout.tw - icon_w
         if anim_flags[0]:
             _draw_icon("anim_data", icon_x, y + (layout.th - icon_size) / 2, icon_size)
+            icon_x += icon_size + icon_pad
         if anim_flags[1]:
             _draw_icon(
                 "constraint",
-                icon_x + (icon_size + icon_pad),
+                icon_x,
                 y + (layout.th - icon_size) / 2,
                 icon_size,
             )
