@@ -72,6 +72,9 @@ def draw_layout_section(layout, prefs):
         row = col.row(align=True)
         row.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
         row.prop(prefs.settings, "show_camera_clip", text="Clip")
+        row.prop(prefs.settings, "show_camera_collection", text="Collection")
+
+        row = col.row(align=True)
         row.prop(prefs.settings, "show_camera_count", text="Count")
 
         body.separator()

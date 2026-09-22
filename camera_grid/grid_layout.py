@@ -106,6 +106,7 @@ class ScrollbarLayout:
 def _has_info_content(prefs) -> bool:
     return (
         prefs.settings.show_active_camera_name
+        or prefs.settings.show_camera_collection
         or prefs.settings.show_camera_lens
         or prefs.settings.show_camera_sensor
         or prefs.settings.show_camera_depth_of_field

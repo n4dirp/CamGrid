@@ -544,6 +544,14 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
             if clip_start > 0 and clip_end > 0:
                 parts.append(f"Clip: {clip_start:g}-{clip_end:g}")
 
+        if prefs.settings.show_camera_collection:
+            try:
+                collections = [coll.name for coll in getattr(active_cam, "users_collection", [])]
+            except (AttributeError, ReferenceError):
+                collections = []
+            if collections:
+                parts.append(f"Collection: {', '.join(collections)}")
+
     if prefs.settings.show_camera_count:
         n = len(layout.cameras)
         count_str = f"Cameras: {n}"

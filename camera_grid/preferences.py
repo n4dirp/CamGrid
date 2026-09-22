@@ -278,6 +278,11 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Show the active camera name in the info text",
         default=True,
     )
+    show_camera_collection: BoolProperty(
+        name="Show Camera Collection",
+        description="Show the collection containing the active camera in the info text",
+        default=False,
+    )
     show_camera_count: BoolProperty(
         name="Show Camera Count",
         description="Show the camera count in the info text",
