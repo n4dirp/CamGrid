@@ -38,6 +38,7 @@ FONT_SIZE = 11
 FONT_ID = 0
 BADGE_FONT_ID = 0
 INFO_TEXT_OFFSET_Y = 18 + TILE_GAP
+ICON_SIZE = 16
 
 
 # ------------------------------------------------------------------------

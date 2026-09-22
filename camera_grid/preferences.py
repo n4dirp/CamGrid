@@ -8,6 +8,7 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, Po
 from bpy.types import AddonPreferences, PropertyGroup
 
 from . import viewport_grid
+from .helpers import redraw_ui
 
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
@@ -80,6 +81,10 @@ def _update_display_mode(self, context):
 def _update_auto_refresh(self, context):
     if not self.use_preview_auto_refresh:
         viewport_grid.ThumbnailManager.cancel_auto_refresh()
+
+
+def _update_redraw(self, context):
+    redraw_ui()
 
 
 class CAMGRID_PG_settings(PropertyGroup):
@@ -170,6 +175,12 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Show Names",
         description="Display camera names on tiles in preview mode",
         default=True,
+    )
+    show_status_icons: BoolProperty(
+        name="Show Icons",
+        description="Display animation and constraint status icons on camera tiles",
+        default=True,
+        update=_update_redraw,
     )
     preview_cache_size: IntProperty(
         name="Preview Cache Size",
@@ -401,11 +412,11 @@ class CAMGRID_AddonPreferences(AddonPreferences):
         layout.use_property_split = True
         layout.use_property_decorate = False
 
-        layout.label(text="Panel")
+        layout.label(text="Settings")
         layout.row().prop(self.settings, "panel_location", expand=True)
 
         layout.separator()
-        layout.label(text="Global Shortcuts")
+        layout.label(text="Viewport Shortcuts")
 
         wm = context.window_manager
         kc = wm.keyconfigs.user

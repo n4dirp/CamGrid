@@ -4,6 +4,7 @@
 
 ### Added
 - Added Toolbar and Sidebar toggles to Reserve Margin in Frame Camera
+- Added animation and constraint status icons on camera tiles
 
 ### Fixed
 - Fixed stale camera previews showing after opening a different blend file with matching camera names

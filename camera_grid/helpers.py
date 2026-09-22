@@ -113,6 +113,81 @@ def _compute_outline_color(rgb: tuple[float, ...]) -> tuple[float, float, float,
     return (1.0, 1.0, 1.0, OUTLINE_ALPHA)
 
 
+def _action_slot_is_animated(action, slot_handle) -> bool:
+    """Return True when an action holds fcurves for the given slot handle."""
+    if action is None:
+        return False
+    try:
+        if getattr(action, "is_empty", False):
+            return False
+        layers = getattr(action, "layers", None)
+        if layers is not None:
+            for layer in layers:
+                for strip in getattr(layer, "strips", []):
+                    if getattr(strip, "type", None) != "KEYFRAME":
+                        continue
+                    for bag in getattr(strip, "channelbags", []):
+                        if slot_handle is not None:
+                            try:
+                                if getattr(bag, "slot_handle", None) != slot_handle:
+                                    continue
+                            except (AttributeError, ReferenceError):
+                                continue
+                        if len(getattr(bag, "fcurves", [])) > 0:
+                            return True
+            return False
+        return len(getattr(action, "fcurves", [])) > 0
+    except (AttributeError, ReferenceError):
+        return False
+
+
+def _animdata_is_animated(adt) -> bool:
+    """Return True when an AnimData block holds action, NLA, or driver data."""
+    if adt is None:
+        return False
+    try:
+        if _action_slot_is_animated(getattr(adt, "action", None), getattr(adt, "action_slot_handle", None)):
+            return True
+        if len(getattr(adt, "nla_tracks", [])) > 0:
+            return True
+        return len(getattr(adt, "drivers", [])) > 0
+    except (AttributeError, ReferenceError):
+        return False
+
+
+def _camera_anim_flags(cam) -> tuple[bool, bool]:
+    """Return (has_anim_data, has_constraint) for a camera, including its parent chain."""
+    anim_data = False
+    constraint = False
+    try:
+        if _animdata_is_animated(getattr(cam, "animation_data", None)):
+            anim_data = True
+        if _animdata_is_animated(getattr(getattr(cam, "data", None), "animation_data", None)):
+            anim_data = True
+        if len(getattr(cam, "constraints", [])) > 0:
+            constraint = True
+        seen = set()
+        obj = getattr(cam, "parent", None)
+        depth = 0
+        while obj is not None and depth < 32:
+            try:
+                key = obj.as_pointer()
+            except (AttributeError, ReferenceError):
+                return anim_data, constraint
+            if key in seen:
+                return anim_data, constraint
+            seen.add(key)
+            if _animdata_is_animated(getattr(obj, "animation_data", None)):
+                anim_data = True
+            if len(getattr(obj, "constraints", [])) > 0:
+                constraint = True
+            obj = getattr(obj, "parent", None)
+            depth += 1
+        return anim_data, constraint
+    except (AttributeError, ReferenceError):
+        return anim_data, constraint
+
+
 def _optimize_grid_columns(
     total_items: int,
     max_cols: int,

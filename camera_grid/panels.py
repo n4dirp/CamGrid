@@ -15,11 +15,7 @@ def draw_filter_section(layout, prefs, props):
     if body:
         body.prop(props, "source_collection", text="")
 
-        if prefs.settings.panel_location == "UI":
-            sub = body.column()
-        else:
-            sub = body.row()
-
+        sub = body.column()
         sub.prop(prefs.settings, "use_filter_camera_collections", text="Filter Collections")
         sub.prop(prefs.settings, "show_hidden_cameras", text="Show Hidden Cameras")
 
@@ -52,8 +48,9 @@ def draw_layout_section(layout, prefs):
 
         if prefs.settings.display_mode == "THUMBNAILS":
             row = body.row(align=True)
-            row.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
             row.prop(prefs.settings, "show_preview_names", text="Show Names")
+            row.prop(prefs.settings, "show_status_icons", text="Status Icons")
+            body.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
 
             col = body.column()
             col.label(text="Auto Refresh")
@@ -62,6 +59,8 @@ def draw_layout_section(layout, prefs):
             sub = row.row(align=True)
             sub.active = prefs.settings.use_preview_auto_refresh
             sub.prop(prefs.settings, "auto_refresh_shading_mode", text="")
+        elif prefs.settings.display_mode == "TILES":
+            body.prop(prefs.settings, "show_status_icons", text="Status Icons")
 
         body.separator()
         col = body.column(align=True)

@@ -7,7 +7,7 @@ import logging
 import bpy
 from bpy.props import PointerProperty
 
-from . import viewport_grid
+from . import icons, viewport_grid
 from .panels import CAMGRID_PT_grid_popup, CAMGRID_PT_grid_sidebar, draw_grid_header_button
 from .preferences import CAMGRID_PG_scene, _update_logger_from_prefs
 from .preferences import classes as prefs_classes
@@ -69,6 +69,7 @@ def register():
 def unregister():
     _unregister_keymaps()
     bpy.types.VIEW3D_HT_header.remove(draw_grid_header_button)
+    icons._unload_icons()
     viewport_grid.unregister()
 
     try:

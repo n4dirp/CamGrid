@@ -19,6 +19,7 @@ from .grid_layout import (
     BADGE_FONT_ID,
     FONT_ID,
     FONT_SIZE,
+    ICON_SIZE,
     PANEL_PADDING,
     SCROLLBAR_WIDTH,
     SCROLLBAR_WIDTH_HOVER,
@@ -35,7 +36,8 @@ from .grid_preview import (
     _queue_missing_thumbnails,
 )
 from .grid_state import GridState, _ensure_area_states
-from .helpers import _alpha_mul, _rgba
+from .helpers import _alpha_mul, _camera_anim_flags, _rgba
+from .icons import _draw_icon
 
 
 def _draw_background_panel(layout: GridLayout, colors: dict):
@@ -154,7 +156,7 @@ def _draw_dot_tiles(layout: GridLayout, colors: dict):
                 )
 
 
-def _draw_label_tiles(layout: GridLayout, colors: dict):
+def _draw_label_tiles(layout: GridLayout, colors: dict, prefs):
     """Draw camera tiles in TILES mode — rounded rects with centered text labels."""
     font_id = FONT_ID
     blf.size(font_id, layout.font_size)
@@ -165,6 +167,8 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
     ellipsis_width = blf.dimensions(font_id, "...")[0]
     inset = line_width * 2
     max_t_w = layout.tw - 8 * layout.scale
+    icon_size = ICON_SIZE * layout.scale
+    icon_pad = 5 * layout.scale
     radius = layout.radius
 
     for i in range(layout.start_index, layout.end_index):
@@ -220,9 +224,16 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
                         line_width,
                     )
 
+        anim_flags = _camera_anim_flags(cam) if prefs.settings.show_status_icons else (False, False)
+        icon_count = int(anim_flags[0]) + int(anim_flags[1])
+        icon_w = icon_count * (icon_size + icon_pad)
+        if icon_count and layout.tw <= icon_w + 19 * layout.scale:
+            anim_flags = (False, False)
+            icon_w = 0.0
+        avail_w = max_t_w - icon_w
         text = cam.name
-        if blf.dimensions(font_id, text)[0] > max_t_w:
-            max_w_no_ell = max_t_w - ellipsis_width
+        if blf.dimensions(font_id, text)[0] > avail_w:
+            max_w_no_ell = max(1.0, avail_w - ellipsis_width)
             left, right = len(text) // 2, len(text) // 2 + 1
             while (
                 left > 0 and right < len(text) and blf.dimensions(font_id, text[:left] + text[right:])[0] > max_w_no_ell
@@ -241,11 +252,21 @@ def _draw_label_tiles(layout: GridLayout, colors: dict):
         _draw_text_with_shadow(
             font_id,
             text,
-            x + (layout.tw - tw) / 2,
+            x + (layout.tw - icon_w - tw) / 2,
             y + (layout.th - ref_font_h) / 2 + 1,
             text_color,
             layout.scale,
         )
+        icon_x = x + layout.tw - icon_w
+        if anim_flags[0]:
+            _draw_icon("anim_data", icon_x, y + (layout.th - icon_size) / 2, icon_size)
+        if anim_flags[1]:
+            _draw_icon(
+                "constraint",
+                icon_x + (icon_size + icon_pad),
+                y + (layout.th - icon_size) / 2,
+                icon_size,
+            )
 
 
 def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
@@ -328,6 +349,27 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 x, y, layout.tw, layout.th, radius, _rgba(colors["text"], 0.02 * layout.master_alpha)
             )
 
+        # Animated Camera Markers
+        anim_flags = _camera_anim_flags(cam) if prefs.settings.show_status_icons else (False, False)
+        if any(anim_flags):
+            glyph = ICON_SIZE * layout.scale
+            gpad = 4 * layout.scale
+            if anim_flags[1]:
+                _draw_icon(
+                    "constraint",
+                    x + layout.tw - glyph - gpad,
+                    y + layout.th - glyph - gpad,
+                    glyph,
+                )
+            if anim_flags[0]:
+                offset = glyph + gpad * 2 if anim_flags[1] else 0.0
+                _draw_icon(
+                    "anim_data",
+                    x + layout.tw - glyph - gpad - offset,
+                    y + layout.th - glyph - gpad,
+                    glyph,
+                )
+
         # Draw Light Tile Border
         _draw_rounded_rect_border(x, y, layout.tw, layout.th, radius, colors["tile_border"], line_width)
 
@@ -395,7 +437,7 @@ def _draw_camera_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
     if display_mode == "THUMBNAILS":
         _draw_thumbnail_tiles(layout, colors, prefs, active_scene)
     elif display_mode == "TILES":
-        _draw_label_tiles(layout, colors)
+        _draw_label_tiles(layout, colors, prefs)
     else:  # DOTS
         _draw_dot_tiles(layout, colors)
 
