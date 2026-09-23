@@ -47,10 +47,10 @@ def draw_layout_section(layout, prefs):
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_mode == "THUMBNAILS":
-            row = body.row(align=True)
-            row.prop(prefs.settings, "show_preview_names", text="Show Names")
-            row.prop(prefs.settings, "show_status_icons", text="Status Icons")
-            body.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
+            col = body.column(align=True)
+            col.prop(prefs.settings, "show_preview_names", text="Show Names")
+            col.prop(prefs.settings, "show_status_icons", text="Status Icons")
+            col.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
 
             col = body.column()
             col.label(text="Auto Refresh")
@@ -72,10 +72,9 @@ def draw_layout_section(layout, prefs):
         row = col.row(align=True)
         row.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
         row.prop(prefs.settings, "show_camera_clip", text="Clip")
-        row.prop(prefs.settings, "show_camera_collection", text="Collection")
-
-        row = col.row(align=True)
         row.prop(prefs.settings, "show_camera_count", text="Count")
+
+        col.prop(prefs.settings, "show_camera_collection", text="Collection")
 
         body.separator()
         body.prop(prefs.settings, "master_alpha", text="Panel Opacity")
@@ -163,7 +162,7 @@ class CAMGRID_PT_grid_sidebar(Panel):
         grid_active = viewport_grid.is_grid_active(context)
 
         col = layout.column(align=True)
-        col.operator("camgrid.toggle_grid", icon="IMGDISPLAY", depress=grid_active)
+        col.operator("camgrid.toggle_grid", text="Show Grid", icon="IMGDISPLAY", depress=grid_active)
         if grid_active and prefs.settings.display_mode == "THUMBNAILS":
             col.operator("camgrid.refresh_previews", icon="FILE_REFRESH")
         layout.operator("camgrid.frame_camera", icon="MOD_LENGTH")

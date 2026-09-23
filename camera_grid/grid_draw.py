@@ -5,7 +5,6 @@ import time
 
 import blf
 import bpy
-from gpu_extras.presets import draw_texture_2d
 
 from .gpu_draw import (
     _draw_filled_rounded_rect,
@@ -13,6 +12,7 @@ from .gpu_draw import (
     _draw_pill_border,
     _draw_rounded_rect_border,
     _draw_text_with_shadow,
+    _draw_texture_2d_with_alpha,
     _get_theme_colors,
 )
 from .grid_layout import (
@@ -331,7 +331,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         # Draw Tile Texture
         if cached:
-            draw_texture_2d(cached[1].texture_color, (x, y), layout.tw, layout.th)
+            _draw_texture_2d_with_alpha(cached[1].texture_color, x, y, layout.tw, layout.th, layout.master_alpha)
 
         # Stale Tile Overlay
         if not is_valid and is_stale:

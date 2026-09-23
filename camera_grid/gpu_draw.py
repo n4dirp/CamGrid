@@ -3,6 +3,7 @@
 import blf
 import gpu
 from gpu_extras.batch import batch_for_shader
+from gpu_extras.presets import draw_texture_2d
 
 from .helpers import _srgb_to_linear, _theme
 
@@ -355,3 +356,28 @@ def _draw_pill_border(x, y, w, h, color, line_width=1.0):
 
     batch.draw(shader)
     gpu.state.blend_set("NONE")
+
+
+def _draw_texture_2d_with_alpha(texture, x: float, y: float, w: float, h: float, alpha: float = 1.0) -> None:
+    """Draw a GPU texture with opacity."""
+    if texture is None or w <= 0 or h <= 0 or alpha <= 0.0:
+        return
+    gpu.state.blend_set("ALPHA")
+    try:
+        if alpha >= 0.999:
+            draw_texture_2d(texture, (x, y), w, h)
+        else:
+            shader = gpu.shader.from_builtin("IMAGE_COLOR")
+            coords = ((0, 0), (1, 0), (1, 1), (0, 1))
+            batch = batch_for_shader(
+                shader, "TRIS", {"pos": coords, "texCoord": coords}, indices=((0, 1, 2), (2, 3, 0))
+            )
+            with gpu.matrix.push_pop():
+                gpu.matrix.translate((x, y))
+                gpu.matrix.scale((w, h))
+                shader.bind()
+                shader.uniform_sampler("image", texture)
+                shader.uniform_float("color", (1.0, 1.0, 1.0, float(alpha)))
+                batch.draw(shader)
+    finally:
+        gpu.state.blend_set("NONE")

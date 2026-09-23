@@ -4,8 +4,8 @@ import os
 
 import bpy
 import gpu
-from gpu_extras.batch import batch_for_shader
-from gpu_extras.presets import draw_texture_2d
+
+from .gpu_draw import _draw_texture_2d_with_alpha
 
 _ICON_FILES: tuple[tuple[str, str], ...] = (
     ("anim_data", "blender_icon_anim_data.png"),
@@ -51,22 +51,4 @@ def _draw_icon(name: str, x: float, y: float, size: float, alpha: float = 1.0) -
     texture = _textures.get(name)
     if texture is None or size <= 0 or alpha <= 0.0:
         return
-    gpu.state.blend_set("ALPHA")
-    try:
-        if alpha >= 0.999:
-            draw_texture_2d(texture, (x, y), size, size)
-        else:
-            shader = gpu.shader.from_builtin("IMAGE_COLOR")
-            coords = ((0, 0), (1, 0), (1, 1), (0, 1))
-            batch = batch_for_shader(
-                shader, "TRIS", {"pos": coords, "texCoord": coords}, indices=((0, 1, 2), (2, 3, 0))
-            )
-            with gpu.matrix.push_pop():
-                gpu.matrix.translate((x, y))
-                gpu.matrix.scale((size, size))
-                shader.bind()
-                shader.uniform_sampler("image", texture)
-                shader.uniform_float("color", (1.0, 1.0, 1.0, float(alpha)))
-                batch.draw(shader)
-    finally:
-        gpu.state.blend_set("NONE")
+    _draw_texture_2d_with_alpha(texture, x, y, size, size, alpha)
