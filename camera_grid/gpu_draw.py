@@ -193,6 +193,7 @@ def _get_theme_colors():
         "border_selected": _theme_rgba("view_3d.object_selected", (0.65, 0.35, 0.0, 1.0)),
         "tile_border": _theme_rgba("user_interface.wcol_regular.outline", (1.0, 1.0, 1.0, 0.02)),
         "scroll_bar": _theme_rgba("user_interface.wcol_scroll.item", (0.35, 0.35, 0.35, 0.75)),
+        "scroll_inner": _theme_rgba("user_interface.wcol_scroll.inner", (0.133, 0.133, 0.133, 0.0)),
         "text": _theme_rgba("user_interface.wcol_regular.text_sel", (1.0, 1.0, 1.0, 1.0)),
         "info_text": _theme_rgba("view_3d.space.text_hi", (1.0, 1.0, 1.0, 1.0)),
         "tile_text": _theme_rgba("user_interface.wcol_regular.text_sel", (1.0, 1.0, 1.0, 1.0)),

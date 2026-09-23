@@ -319,6 +319,9 @@ class CAMGRID_OT_interactive_grid(Operator):
                 if sb.hit_left <= mx <= sb.hit_right and sb.track_bottom <= my <= sb.track_top:
                     sb_hovered = True
 
+            if sb_hovered:
+                hovered = None
+
             needs_redraw = False
             if in_grid != state.mouse_in_grid:
                 state.mouse_in_grid = in_grid

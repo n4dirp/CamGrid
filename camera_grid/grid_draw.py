@@ -259,7 +259,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict, prefs):
         )
         icon_x = x + layout.tw - icon_w
         if anim_flags[0]:
-            _draw_icon("anim_data", icon_x, y + (layout.th - icon_size) / 2, icon_size)
+            _draw_icon("anim_data", icon_x, y + (layout.th - icon_size) / 2, icon_size, layout.master_alpha)
             icon_x += icon_size + icon_pad
         if anim_flags[1]:
             _draw_icon(
@@ -267,6 +267,7 @@ def _draw_label_tiles(layout: GridLayout, colors: dict, prefs):
                 icon_x,
                 y + (layout.th - icon_size) / 2,
                 icon_size,
+                layout.master_alpha,
             )
 
 
@@ -361,6 +362,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                     x + layout.tw - glyph - gpad,
                     y + layout.th - glyph - gpad,
                     glyph,
+                    layout.master_alpha,
                 )
             if anim_flags[0]:
                 offset = glyph + gpad * 2 if anim_flags[1] else 0.0
@@ -369,6 +371,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                     x + layout.tw - glyph - gpad - offset,
                     y + layout.th - glyph - gpad,
                     glyph,
+                    layout.master_alpha,
                 )
 
         # Draw Light Tile Border
@@ -451,6 +454,19 @@ def _draw_scrollbar(layout: GridLayout, colors: dict):
         bar_right = sb.track_right
         bar_width = (SCROLLBAR_WIDTH_HOVER if is_hovered else SCROLLBAR_WIDTH) * layout.scale
         bar_left = bar_right - bar_width
+
+        inner = colors["scroll_inner"]
+        track_alpha = (min(inner[3], 0.15) if not is_hovered else max(inner[3], 0.15)) * layout.master_alpha
+        fill_color = _rgba(inner, track_alpha)
+        _draw_filled_rounded_rect(
+            round(bar_left),
+            round(sb.track_bottom),
+            round(bar_right - bar_left),
+            round(sb.track_h),
+            bar_width / 2.0,
+            fill_color,
+        )
+
         alpha = 1.0 if is_hovered else 0.6
         color = _rgba(colors["scroll_bar"], alpha * layout.master_alpha)
         _draw_pill(
