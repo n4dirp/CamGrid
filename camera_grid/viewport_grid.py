@@ -10,6 +10,7 @@ from bpy.types import Context, Event, Operator
 
 from .grid_draw import _draw_grid
 from .grid_layout import (
+    PANEL_PADDING,
     GridLayout,
     ScrollbarLayout,
     _compute_grid_layout,
@@ -19,7 +20,7 @@ from .grid_layout import (
 )
 from .grid_preview import ThumbnailManager, _depsgraph_update_post_handler, refresh_thumbnail_cache
 from .grid_state import AreaGridState, GridState, _DragState, _ensure_area_states
-from .helpers import _get_left_right_overlap, _get_ui_scale, redraw_ui
+from .helpers import _get_header_heights, _get_left_right_overlap, _get_ui_scale, redraw_ui
 
 logger = logging.getLogger(__package__)
 
@@ -615,17 +616,29 @@ class CAMGRID_OT_frame_camera(Operator):
 
         layout = _compute_grid_layout(context, area=context.area, region=region) if is_grid_active(context) else None
         scale = layout.scale if layout else _get_ui_scale()
+
+        header_top = header_bottom = 0
+        if prefs.settings.use_frame_header_margin:
+            try:
+                header_top, header_bottom = _get_header_heights(context.area)
+            except (ReferenceError, AttributeError):
+                header_top = header_bottom = 0
+        grid_reserves_bottom = layout is not None and prefs.settings.use_frame_grid_padding
+        bottom_reserve = 0 if grid_reserves_bottom else header_bottom
+        # Mirror _draw_background_panel top edge, then add user padding.
         grid_top = (
             (
                 layout.origin_y
                 + layout.visible_rows * (layout.th + layout.gap)
+                - layout.gap
+                + PANEL_PADDING * scale
                 + prefs.settings.frame_bottom_padding * scale
             )
             if layout and prefs.settings.use_frame_grid_padding
-            else prefs.settings.frame_bottom_padding * scale
+            else prefs.settings.frame_bottom_padding * scale + bottom_reserve
         )
 
-        top_margin = prefs.settings.frame_top_padding * scale
+        top_margin = prefs.settings.frame_top_padding * scale + header_top
         grid_frac = min(0.6, grid_top / float(region.height))
 
         left_overlap, right_overlap = _get_left_right_overlap(context.area)

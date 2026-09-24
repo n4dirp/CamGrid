@@ -322,23 +322,20 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Horizontal padding when framing the camera in the viewport",
         default=0,
         min=0,
-        soft_max=100,
         subtype="PIXEL",
     )
     frame_top_padding: IntProperty(
         name="Frame Top Padding",
         description="Top padding when framing the camera in the viewport",
-        default=27,
+        default=0,
         min=0,
-        soft_max=200,
         subtype="PIXEL",
     )
     frame_bottom_padding: IntProperty(
         name="Frame Bottom Padding",
         description="Bottom padding reserved for the grid when framing the camera",
-        default=2,
+        default=0,
         min=0,
-        soft_max=50,
         subtype="PIXEL",
     )
     use_frame_grid_padding: BoolProperty(
@@ -354,6 +351,11 @@ class CAMGRID_PG_settings(PropertyGroup):
     use_frame_sidebar_margin: BoolProperty(
         name="Sidebar Margin",
         description="Reserve the sidebar width when framing the camera",
+        default=True,
+    )
+    use_frame_header_margin: BoolProperty(
+        name="Header Margin",
+        description="Reserve the viewport header height when framing the camera",
         default=True,
     )
     use_escape_to_close: BoolProperty(

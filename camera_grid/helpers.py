@@ -86,12 +86,34 @@ def _get_asset_shelf_height(area: bpy.types.Area) -> int:
     return shelf_height
 
 
-def _get_bottom_header_height(area: bpy.types.Area) -> int:
-    """Height of bottom HEADER that overlaps the WINDOW region, or 0."""
+HEADER_REGION_TYPES = ("HEADER", "TOOL_HEADER")
+
+
+def _get_header_heights(area: bpy.types.Area) -> tuple[int, int]:
+    """Return (top, bottom) heights of header regions overlapping the WINDOW region."""
+    top = bottom = 0
     for region in area.regions:
-        if region.type == "HEADER" and getattr(region, "alignment", "") == "BOTTOM":
-            return int(region.height)
-    return 0
+        if region.type not in HEADER_REGION_TYPES:
+            continue
+        height = int(region.height)
+        if height <= 1:
+            continue
+        align = getattr(region, "alignment", "")
+        if align == "TOP" or (not align and int(region.y) > int(area.y)):
+            top += height
+        elif align == "BOTTOM" or (not align and int(region.y) <= int(area.y)):
+            bottom += height
+    return top, bottom
+
+
+def _get_bottom_header_height(area: bpy.types.Area) -> int:
+    """Height of bottom headers that overlap the WINDOW region, or 0."""
+    return _get_header_heights(area)[1]
+
+
+def _get_top_header_height(area: bpy.types.Area) -> int:
+    """Height of top headers that overlap the WINDOW region, or 0."""
+    return _get_header_heights(area)[0]
 
 
 def _get_left_right_overlap(area: bpy.types.Area) -> tuple[int, int]:

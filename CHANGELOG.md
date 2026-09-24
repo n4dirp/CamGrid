@@ -3,7 +3,7 @@
 ## [1.5.0] - [Unreleased]
 
 ### Added
-- Added Toolbar and Sidebar toggles to Reserve Margin in Frame Camera
+- Added Header, Toolbar and Sidebar toggles to reserve margin in Frame Camera
 - Added animation and constraint status icons on camera tiles
 
 ### Fixed

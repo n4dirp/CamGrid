@@ -28,10 +28,12 @@ def draw_layout_section(layout, prefs):
         col.label(text="Alignment")
         col.row().prop(prefs.settings, "alignment", expand=True)
 
+        body.separator(factor=0.5)
         col = body.column()
         col.label(text="Display Mode")
         col.prop(prefs.settings, "display_mode", text="Display Mode", expand=True)
 
+        body.separator(factor=0.5)
         sub = body.column(align=True)
         sub.label(text="Options")
         if prefs.settings.display_mode == "THUMBNAILS":
@@ -48,7 +50,7 @@ def draw_layout_section(layout, prefs):
 
         if prefs.settings.display_mode == "THUMBNAILS":
             col = body.column(align=True)
-            col.prop(prefs.settings, "show_preview_names", text="Show Names")
+            col.prop(prefs.settings, "show_preview_names", text="Camera Name")
             col.prop(prefs.settings, "show_status_icons", text="Status Icons")
             col.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
 
@@ -62,21 +64,24 @@ def draw_layout_section(layout, prefs):
         elif prefs.settings.display_mode == "TILES":
             body.prop(prefs.settings, "show_status_icons", text="Status Icons")
 
-        body.separator()
+        body.separator(factor=0.5)
         col = body.column(align=True)
-        col.label(text="Info Text")
+        col.label(text="Info")
+        split = col.split(factor=0.4)
+        col = split.column()
+        col.prop(prefs.settings, "show_active_camera_name", text="Name")
+        col.prop(prefs.settings, "show_camera_collection", text="Collection")
+        col.prop(prefs.settings, "show_camera_count", text="Count")
+
+        col = split.column(align=True)
         row = col.row(align=True)
-        row.prop(prefs.settings, "show_active_camera_name", text="Name")
         row.prop(prefs.settings, "show_camera_lens", text="Lens")
         row.prop(prefs.settings, "show_camera_sensor", text="Sensor")
         row = col.row(align=True)
         row.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
         row.prop(prefs.settings, "show_camera_clip", text="Clip")
-        row.prop(prefs.settings, "show_camera_count", text="Count")
 
-        col.prop(prefs.settings, "show_camera_collection", text="Collection")
-
-        body.separator()
+        body.separator(factor=0.5)
         body.prop(prefs.settings, "master_alpha", text="Panel Opacity")
 
 
@@ -93,7 +98,7 @@ def draw_interaction_section(layout, prefs):
         col.label(text="On Switch")
         col.row().prop(prefs.settings, "switch_action", text="")
 
-        body.separator()
+        body.separator(factor=0.5)
         col = body.column(align=True)
         col.prop(prefs.settings, "use_camera_cycling", text="Cycle Switch")
         col.prop(prefs.settings, "use_right_click_select", text="Select with Right Click")
@@ -101,18 +106,22 @@ def draw_interaction_section(layout, prefs):
 
 def draw_frame_camera_section(layout, prefs):
     header, body = layout.panel("CAMGRID_PT_frame_camera", default_closed=True)
-    header.label(text="Frame Camera")
+    header.label(text="Frame Margins")
     if body:
+        row = body.row()
+        col = row.column(align=True)
+        col.prop(prefs.settings, "use_frame_header_margin", text="Header")
+        col.prop(prefs.settings, "use_frame_grid_padding", text="Grid")
+
+        col = row.column(align=True)
+        col.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
+        col.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
+
+        body.separator(factor=0.5)
         col = body.column(align=True)
-        col.label(text="Padding")
         col.prop(prefs.settings, "frame_top_padding", text="Top")
         col.prop(prefs.settings, "frame_horizontal_padding", text="Horizontal")
         col.prop(prefs.settings, "frame_bottom_padding", text="Bottom")
-
-        row = body.row()
-        row.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
-        row.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
-        row.prop(prefs.settings, "use_frame_grid_padding", text="Grid")
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +133,7 @@ class CAMGRID_PT_grid_popup(Panel):
     bl_label = "Camera Grid Options"
     bl_space_type = "VIEW_3D"
     bl_region_type = "WINDOW"
-    bl_ui_units_x = 13
+    bl_ui_units_x = 12
 
     def draw(self, context):
         layout = self.layout
@@ -161,10 +170,10 @@ class CAMGRID_PT_grid_sidebar(Panel):
         props = context.scene.camgrid_props
         grid_active = viewport_grid.is_grid_active(context)
 
-        col = layout.column(align=True)
-        col.operator("camgrid.toggle_grid", text="Show Grid", icon="IMGDISPLAY", depress=grid_active)
+        row = layout.row(align=True)
+        row.operator("camgrid.toggle_grid", text="Show Grid", icon="IMGDISPLAY", depress=grid_active)
         if grid_active and prefs.settings.display_mode == "THUMBNAILS":
-            col.operator("camgrid.refresh_previews", icon="FILE_REFRESH")
+            row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
         layout.operator("camgrid.frame_camera", icon="MOD_LENGTH")
 
         layout.separator()
