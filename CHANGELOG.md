@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.5.0] - [Unreleased]
+## [1.5.0] - 2026-09-23
 
 ### Added
 - Added Header, Toolbar and Sidebar toggles to reserve margin in Frame Camera
