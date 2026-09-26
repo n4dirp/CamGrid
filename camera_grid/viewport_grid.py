@@ -671,6 +671,8 @@ class CAMGRID_OT_frame_camera(Operator):
             else (float(region.height) * c_asp, float(region.height))
         )
         s = min(avail_w / fw, avail_vh / fh, 1.0)
+        if prefs.settings.use_custom_frame_size:
+            s = min(s, prefs.settings.custom_frame_width / fw, prefs.settings.custom_frame_height / fh)
 
         rv3d.view_camera_zoom = max(-29.9, (1.0 / sqrt2_100) * (math.sqrt(zf_base * s) - 1.0)) if s < 1.0 else z_base
         zf_final = (sqrt2_100 * rv3d.view_camera_zoom + 1.0) ** 2

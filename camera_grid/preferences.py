@@ -358,6 +358,27 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Reserve the viewport header height when framing the camera",
         default=True,
     )
+    use_custom_frame_size: BoolProperty(
+        name="Limit Frame Size",
+        description="Never zoom the framed camera larger than the custom size in screen pixels",
+        default=False,
+    )
+    custom_frame_width: IntProperty(
+        name="Frame Max Width",
+        description="Maximum framed camera width in screen pixels when Limit Frame Size is enabled",
+        default=1920,
+        min=1,
+        max=16384,
+        subtype="PIXEL",
+    )
+    custom_frame_height: IntProperty(
+        name="Frame Max Height",
+        description="Maximum framed camera height in screen pixels when Limit Frame Size is enabled",
+        default=1080,
+        min=1,
+        max=16384,
+        subtype="PIXEL",
+    )
     use_escape_to_close: BoolProperty(
         name="Close Grid with ESC",
         description="Press ESC to close the camera grid overlay",

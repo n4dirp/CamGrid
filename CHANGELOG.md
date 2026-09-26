@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.0] - 2026-09-26
+
+### Added
+- Added a Limit Frame Size option to Frame Camera so the framed camera never zooms larger than a custom width and height
+
 ## [1.5.0] - 2026-09-23
 
 ### Added
