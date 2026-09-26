@@ -61,6 +61,7 @@ def register():
 
     bpy.types.Scene.camgrid_props = PointerProperty(type=CAMGRID_PG_scene)
     bpy.types.VIEW3D_HT_header.append(draw_grid_header_button)
+    icons._load_preview_icons()
     _update_logger_from_prefs()
     viewport_grid.register()
     _register_keymaps()

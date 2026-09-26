@@ -3,6 +3,7 @@
 from bpy.types import Panel
 
 from . import viewport_grid
+from .icons import _icon_id
 
 # ---------------------------------------------------------------------------
 #  Draw helpers (shared between popup and sidebar panel)
@@ -179,7 +180,9 @@ class CAMGRID_PT_grid_sidebar(Panel):
         grid_active = viewport_grid.is_grid_active(context)
 
         row = layout.row(align=True)
-        row.operator("camgrid.toggle_grid", text="Show Grid", icon="IMGDISPLAY", depress=grid_active)
+        row.operator(
+            "camgrid.toggle_grid", text="Show Grid", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active
+        )
         if grid_active and prefs.settings.display_mode == "THUMBNAILS":
             row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
         layout.operator("camgrid.frame_camera", icon="MOD_LENGTH")
@@ -201,7 +204,7 @@ def draw_grid_header_button(self, context):
     grid_active = viewport_grid.is_grid_active(context)
 
     row = layout.row(align=True)
-    row.operator("camgrid.toggle_grid", text="", icon="IMGDISPLAY", depress=grid_active)
+    row.operator("camgrid.toggle_grid", text="", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active)
     if grid_active and prefs.settings.display_mode == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
     row.operator("camgrid.frame_camera", text="", icon="MOD_LENGTH")
