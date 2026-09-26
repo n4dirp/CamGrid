@@ -126,10 +126,10 @@ def draw_frame_camera_section(layout, prefs):
         body.separator(factor=0.5)
         col = body.column(align=True)
         col.prop(prefs.settings, "use_custom_frame_size", text="Limit Frame Size")
-        row = col.row(align=True)
-        row.active = prefs.settings.use_custom_frame_size
-        row.prop(prefs.settings, "custom_frame_width", text="W")
-        row.prop(prefs.settings, "custom_frame_height", text="H")
+        col = col.column(align=True)
+        col.active = prefs.settings.use_custom_frame_size
+        col.prop(prefs.settings, "custom_frame_width", text="Width")
+        col.prop(prefs.settings, "custom_frame_height", text="Height")
 
 
 # ---------------------------------------------------------------------------
