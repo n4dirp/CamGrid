@@ -50,13 +50,13 @@ def draw_layout_section(layout, prefs):
             sub.prop(prefs.settings, "max_columns", text="Max Columns")
 
         if prefs.settings.display_mode == "THUMBNAILS":
-            col = body.column(align=True)
-            col.prop(prefs.settings, "show_preview_names", text="Camera Name")
-            col.prop(prefs.settings, "show_status_icons", text="Status Icons")
-            col.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
+            grid = body.grid_flow(columns=2, row_major=False, align=True)
+            grid.prop(prefs.settings, "show_preview_names", text="Camera Name")
+            grid.prop(prefs.settings, "show_status_icons", text="Status Icons")
+            grid.prop(prefs.settings, "use_hide_overlays_in_preview", text="Hide Overlays")
 
             col = body.column()
-            col.label(text="Auto Refresh")
+            col.label(text="Auto Refresh Thumbnails")
             row = col.row(align=True)
             row.prop(prefs.settings, "use_preview_auto_refresh", text="")
             sub = row.row(align=True)
@@ -68,19 +68,14 @@ def draw_layout_section(layout, prefs):
         body.separator(factor=0.5)
         col = body.column(align=True)
         col.label(text="Info")
-        split = col.split(factor=0.4)
-        col = split.column()
-        col.prop(prefs.settings, "show_active_camera_name", text="Name")
-        col.prop(prefs.settings, "show_camera_collection", text="Collection")
-        col.prop(prefs.settings, "show_camera_count", text="Count")
-
-        col = split.column(align=True)
-        row = col.row(align=True)
-        row.prop(prefs.settings, "show_camera_lens", text="Lens")
-        row.prop(prefs.settings, "show_camera_sensor", text="Sensor")
-        row = col.row(align=True)
-        row.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
-        row.prop(prefs.settings, "show_camera_clip", text="Clip")
+        grid = col.grid_flow(columns=2, row_major=False, align=True)
+        grid.prop(prefs.settings, "show_active_camera_name", text="Name")
+        grid.prop(prefs.settings, "show_camera_lens", text="Lens")
+        grid.prop(prefs.settings, "show_camera_sensor", text="Sensor")
+        grid.prop(prefs.settings, "show_camera_depth_of_field", text="DoF")
+        grid.prop(prefs.settings, "show_camera_clip", text="Clip")
+        grid.prop(prefs.settings, "show_camera_collection", text="Collection")
+        grid.prop(prefs.settings, "show_camera_count", text="Count")
 
         body.separator(factor=0.5)
         body.prop(prefs.settings, "master_alpha", text="Panel Opacity")
@@ -181,7 +176,7 @@ class CAMGRID_PT_grid_sidebar(Panel):
 
         row = layout.row(align=True)
         row.operator(
-            "camgrid.toggle_grid", text="Show Grid", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active
+            "camgrid.toggle_grid", text="Show Camera Grid", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active
         )
         if grid_active and prefs.settings.display_mode == "THUMBNAILS":
             row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")

@@ -578,9 +578,6 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
         if sel_count := sum(1 for cam in layout.cameras if cam.select_get()):
             parts.append(f"Selected: {sel_count}")
 
-    if ThumbnailManager.render_timer_active:
-        parts.append("Loading...")
-
     if not parts:
         return
 
