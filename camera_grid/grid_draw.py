@@ -11,6 +11,7 @@ from .gpu_draw import (
     _draw_pill,
     _draw_pill_border,
     _draw_rounded_rect_border,
+    _draw_text_with_outline,
     _draw_text_with_shadow,
     _draw_texture_2d_with_alpha,
     _get_theme_colors,
@@ -279,7 +280,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
     line_width = 0.5 * layout.scale
     radius = 0
     ellipsis_width = blf.dimensions(font_id, "...")[0]
-    badge_pad = 3 * layout.scale
+    badge_pad = 4 * layout.scale
     max_t_w = layout.tw - (badge_pad * 2) * layout.scale
     badge_font_size = max(6, int(FONT_SIZE * layout.scale))
     shadow_offset = SHADOW_OFFSET * layout.scale
@@ -425,14 +426,7 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
                 text_color = colors["tile_text"]
             else:
                 text_color = colors["tile_text_inactive"]
-            _draw_text_with_shadow(
-                BADGE_FONT_ID,
-                text,
-                bx + badge_pad,
-                by + badge_pad,
-                text_color,
-                layout.scale,
-            )
+            _draw_text_with_outline(BADGE_FONT_ID, text, bx + badge_pad, by + badge_pad, text_color)
 
 
 def _draw_camera_tiles(layout: GridLayout, colors: dict, prefs, active_scene):
@@ -594,7 +588,7 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
 
     iy = layout.origin_y - layout.info_offset_y
 
-    _draw_text_with_shadow(font_id, info_text, ix, iy, colors["info_text"], layout.scale)
+    _draw_text_with_outline(font_id, info_text, ix, iy, colors["info_text"])
 
 
 def _draw_grid():

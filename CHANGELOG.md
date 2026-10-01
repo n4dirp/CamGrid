@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.1] - 2026-10-01
+
+### Added
+- Added a custom Camera Grid icon for the add-on, the viewport header button, and the sidebar panel
+
+### Changed
+- Camera names in Thumbnails mode and the info line below the grid now use the same outlined text style as Blender's viewport overlay text, keeping them readable over previews and viewport backgrounds
+
 ## [1.6.0] - 2026-09-26
 
 ### Added

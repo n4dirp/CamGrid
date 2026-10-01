@@ -6,10 +6,11 @@ from typing import Any, TypeVar
 import bpy
 
 # Text Outline / Readability
-LUMINANCE_R: float = 0.299
-LUMINANCE_G: float = 0.587
-LUMINANCE_B: float = 0.114
+LUMINANCE_R: float = 0.2126
+LUMINANCE_G: float = 0.7152
+LUMINANCE_B: float = 0.0722
 OUTLINE_ALPHA: float = 0.8
+OUTLINE_LUMINANCE_THRESHOLD: float = 0.4
 
 
 def redraw_ui(mode: str = "VIEW_3D", area_pointer: int | None = None) -> None:
@@ -130,7 +131,7 @@ def _get_left_right_overlap(area: bpy.types.Area) -> tuple[int, int]:
 def _compute_outline_color(rgb: tuple[float, ...]) -> tuple[float, float, float, float]:
     """Compute an appropriate black or white outline color based on input luminance for contrast."""
     luminance = rgb[0] * LUMINANCE_R + rgb[1] * LUMINANCE_G + rgb[2] * LUMINANCE_B
-    if luminance > 0.5:
+    if luminance > OUTLINE_LUMINANCE_THRESHOLD:
         return (0.0, 0.0, 0.0, OUTLINE_ALPHA)
     return (1.0, 1.0, 1.0, OUTLINE_ALPHA)
 

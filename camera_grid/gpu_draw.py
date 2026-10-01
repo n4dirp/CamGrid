@@ -5,10 +5,13 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from gpu_extras.presets import draw_texture_2d
 
-from .helpers import _srgb_to_linear, _theme
+from .helpers import _compute_outline_color, _srgb_to_linear, _theme
 
 GPUStageInterfaceInfo = gpu.types.GPUStageInterfaceInfo
 GPUShaderCreateInfo = gpu.types.GPUShaderCreateInfo
+
+# blf.shadow level 6 is FontShadowType::Outline, a 1px dilation of the glyph alpha.
+BLF_SHADOW_OUTLINE = 6
 
 _FILL_SDF_SHADER: gpu.types.GPUShader | None = None
 _BORDER_SDF_SHADER: gpu.types.GPUShader | None = None
@@ -208,6 +211,19 @@ def _draw_text_with_shadow(font_id: int, text: str, x: float, y: float, color: t
     blf.enable(font_id, blf.SHADOW)
     blf.shadow(font_id, 3, 0, 0, 0, 255)
     blf.shadow_offset(font_id, 0, -int(scale))
+    blf.position(font_id, x, y, 0)
+    blf.color(font_id, *color)
+    blf.draw(font_id, text)
+    blf.disable(font_id, blf.SHADOW)
+
+
+def _draw_text_with_outline(font_id: int, text: str, x: float, y: float, color: tuple[float, ...]):
+    """Draw text with the 1px outline Blender uses for viewport overlay text."""
+    if len(color) == 3:
+        color = color + (1.0,)
+    blf.enable(font_id, blf.SHADOW)
+    blf.shadow(font_id, BLF_SHADOW_OUTLINE, *_compute_outline_color(color))
+    blf.shadow_offset(font_id, 0, 0)
     blf.position(font_id, x, y, 0)
     blf.color(font_id, *color)
     blf.draw(font_id, text)
