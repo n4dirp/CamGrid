@@ -160,7 +160,7 @@ class CAMGRID_PG_settings(PropertyGroup):
         name="Preview Size",
         description="Tile width in pixels for camera preview thumbnails",
         default=128,
-        min=32,
+        min=64,
         soft_max=512,
         max=1024,
         subtype="PIXEL",
