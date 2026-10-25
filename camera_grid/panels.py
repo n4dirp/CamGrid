@@ -19,6 +19,7 @@ def draw_filter_section(layout, prefs, props):
         sub = body.column()
         sub.prop(prefs.settings, "use_filter_camera_collections", text="Filter Collections")
         sub.prop(prefs.settings, "show_hidden_cameras", text="Show Hidden Cameras")
+        sub.prop(prefs.settings, "follow_local_view", text="Follow Local View")
 
 
 def draw_layout_section(layout, prefs):

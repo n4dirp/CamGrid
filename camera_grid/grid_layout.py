@@ -68,6 +68,8 @@ class GridLayout:
     active_camera: bpy.types.Object | None
     active_object: bpy.types.Object | None
     active_index: int
+    local_view_active: bool
+    local_view_filtered: bool
     total_rows: int
     font_size: int
     info_offset_y: float
@@ -126,6 +128,71 @@ def _is_redo_panel_visible(context: Context) -> bool:
     return False
 
 
+def _get_visible_collection_names(layer_collection) -> set[str]:
+    """Return names of visible collections in a layer collection tree."""
+    names = set()
+    try:
+        if not layer_collection.visible_get():
+            return names
+    except (AttributeError, ReferenceError):
+        return names
+
+    names.add(layer_collection.collection.name)
+    for child in layer_collection.children:
+        names.update(_get_visible_collection_names(child))
+    return names
+
+
+def _is_camera_visible(cam, view_layer, space_data) -> bool:
+    """Return whether a camera is visible in the given view layer and viewport."""
+    try:
+        if space_data is not None:
+            return cam.visible_get(view_layer=view_layer, viewport=space_data)
+        return cam.visible_get(view_layer=view_layer)
+    except (AttributeError, ReferenceError, TypeError):
+        return False
+
+
+def _get_fallback_cameras(cameras, view_layer) -> list[bpy.types.Object]:
+    """Return cameras visible without local-view isolation."""
+    if view_layer is None:
+        return cameras
+
+    try:
+        visible_collections = _get_visible_collection_names(view_layer.layer_collection)
+    except (AttributeError, ReferenceError):
+        return cameras
+
+    result = []
+    for cam in cameras:
+        try:
+            if not any(coll.name in visible_collections for coll in cam.users_collection):
+                continue
+            if cam.hide_get() or cam.hide_viewport:
+                continue
+        except RuntimeError:
+            continue
+        result.append(cam)
+    return result
+
+
+def _filter_cameras(cameras, prefs, view_layer, space_data):
+    """Filter cameras for local view, returning cameras and local-view state flags."""
+    local_view_active = bool(getattr(space_data, "local_view", None))
+    if prefs.settings.show_hidden_cameras:
+        return cameras, local_view_active, False
+
+    if not local_view_active:
+        visible_cameras = [cam for cam in cameras if _is_camera_visible(cam, view_layer, space_data)]
+        return visible_cameras, False, False
+
+    local_cameras = [cam for cam in cameras if _is_camera_visible(cam, view_layer, space_data)]
+    if prefs.settings.follow_local_view and local_cameras:
+        return local_cameras, True, True
+
+    return _get_fallback_cameras(cameras, view_layer), True, False
+
+
 def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -> GridLayout | None:
     scene = scene or getattr(context, "scene", None)
     if not scene:
@@ -133,15 +200,6 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     props = getattr(scene, "camgrid_props", None)
     if not props:
         return None
-
-    cam_col = props.source_collection
-    source_objs = cam_col.objects if cam_col else bpy.data.objects
-    cameras = sorted((obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name)
-
-    prefs = context.preferences.addons.get(__package__).preferences
-    view_layer = getattr(context, "view_layer", None)
-    if view_layer is not None and not prefs.settings.show_hidden_cameras:
-        cameras = [cam for cam in cameras if cam.name in view_layer.objects]
 
     region = region or getattr(context, "region", None)
     area = area or getattr(context, "area", None)
@@ -164,8 +222,18 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         except ReferenceError:
             return None
 
-    if not prefs.settings.show_hidden_cameras:
-        cameras = [cam for cam in cameras if cam.visible_get()]
+    prefs = context.preferences.addons.get(__package__).preferences
+    view_layer = getattr(context, "view_layer", None)
+    space_data = area.spaces.active if area.type == "VIEW_3D" else None
+
+    cam_col = props.source_collection
+    source_objs = cam_col.objects if cam_col else bpy.data.objects
+    cameras = sorted((obj for obj in source_objs if obj.type == "CAMERA"), key=lambda o: o.name)
+
+    if view_layer is not None and not prefs.settings.show_hidden_cameras:
+        cameras = [cam for cam in cameras if cam.name in view_layer.objects]
+
+    cameras, local_view_active, local_view_filtered = _filter_cameras(cameras, prefs, view_layer, space_data)
 
     total_cameras = len(cameras)
     if total_cameras < 1:
@@ -242,21 +310,26 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
     columns = _optimize_grid_columns(total_cameras, max_cols, effective_max_rows, max_available_width, tw, gap)
     active_camera = scene.camera
     active_object = view_layer.objects.active if view_layer else None
-    active_index = cameras.index(active_camera) if active_camera in cameras else 0
+    active_index = cameras.index(active_camera) if active_camera in cameras else -1
 
     total_rows = (total_cameras + columns - 1) // columns
-    active_row = active_index // columns
     max_scroll = max(0, total_rows - effective_max_rows)
 
-    if active_index != state.last_active_index:
-        if state.current_start_row == -1:
-            state.current_start_row = max(0, active_row - effective_max_rows // 2)
-        else:
-            if active_row < state.current_start_row:
-                state.current_start_row = active_row
-            elif active_row >= state.current_start_row + effective_max_rows:
-                state.current_start_row = active_row - effective_max_rows + 1
+    if active_index >= 0:
+        active_row = active_index // columns
+        if active_index != state.last_active_index:
+            if state.current_start_row == -1:
+                state.current_start_row = max(0, active_row - effective_max_rows // 2)
+            else:
+                if active_row < state.current_start_row:
+                    state.current_start_row = active_row
+                elif active_row >= state.current_start_row + effective_max_rows:
+                    state.current_start_row = active_row - effective_max_rows + 1
         state.last_active_index = active_index
+    else:
+        if state.current_start_row == -1:
+            state.current_start_row = 0
+        state.last_active_index = -1
 
     state.current_start_row = max(0, min(state.current_start_row, max_scroll))
     start_row = state.current_start_row
@@ -294,6 +367,8 @@ def _compute_grid_layout(context: Context, area=None, region=None, scene=None) -
         active_camera=active_camera,
         active_object=active_object,
         active_index=active_index,
+        local_view_active=local_view_active,
+        local_view_filtered=local_view_filtered,
         total_rows=total_rows,
         font_size=max(8, int(FONT_SIZE * scale)),
         info_offset_y=INFO_TEXT_OFFSET_Y * scale,

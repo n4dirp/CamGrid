@@ -55,6 +55,28 @@ def _switch_to_camera_view(context: Context, area=None):
             space.region_3d.view_perspective = "CAMERA"
 
 
+def _set_active_camera(context, cam, area=None) -> None:
+    """Set the scene camera and keep a local-view camera view in sync."""
+    if context.scene.camera != cam:
+        context.scene.camera = cam
+
+    if area is None or area.type != "VIEW_3D":
+        return
+    space = area.spaces.active
+    if space is None or space.type != "VIEW_3D" or space.use_local_camera:
+        return
+
+    local_view = space.local_view
+    if local_view is None:
+        return
+
+    # Blender skips the scene-camera sync while local view is active.
+    if space.camera != cam:
+        space.camera = cam
+    if local_view.camera != cam:
+        local_view.camera = cam
+
+
 def _apply_switch_action(context, area=None, region=None):
     prefs = context.preferences.addons.get(__package__).preferences
     match prefs.settings.switch_action:
@@ -79,7 +101,7 @@ def _get_select_button(prefs) -> str:
 def _action_switch_camera(layout: GridLayout, tile_index: int, context=None, area=None, region=None):
     context = context or bpy.context
     if 0 <= tile_index < len(layout.cameras):
-        context.scene.camera = layout.cameras[tile_index]
+        _set_active_camera(context, layout.cameras[tile_index], area)
     _apply_switch_action(context, area, region)
 
 
@@ -136,6 +158,7 @@ def _full_cleanup():
         except (ValueError, AttributeError):
             pass
     ThumbnailManager.invalidate()
+    ThumbnailManager.local_view_key = None
     GridState.reset()
 
 
@@ -443,7 +466,7 @@ class CAMGRID_OT_interactive_grid(Operator):
                 -1,
             )
             if cam != layout.active_camera:
-                context.scene.camera = cam
+                _set_active_camera(context, cam, area)
             _apply_switch_action(context, area, region)
 
             return {"RUNNING_MODAL"}
@@ -520,13 +543,15 @@ class CAMGRID_OT_interactive_grid(Operator):
             return {"RUNNING_MODAL"}
 
         delta = 1 if event_type == "WHEELUPMOUSE" else -1
-        if prefs.settings.use_camera_cycling:
+        if layout.active_index < 0:
+            new_idx = 0 if delta > 0 else layout.total_cameras - 1
+        elif prefs.settings.use_camera_cycling:
             new_idx = (layout.active_index + delta) % layout.total_cameras
         else:
             new_idx = max(0, min(layout.total_cameras - 1, layout.active_index + delta))
 
         if new_idx != layout.active_index and 0 <= new_idx < layout.total_cameras:
-            context.scene.camera = layout.cameras[new_idx]
+            _set_active_camera(context, layout.cameras[new_idx], area)
             _apply_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
@@ -544,18 +569,21 @@ class CAMGRID_OT_interactive_grid(Operator):
 
         prefs = context.preferences.addons.get(__package__).preferences
 
-        match event_type:
-            case "LEFT_ARROW":
-                new_idx = (idx - 1 + tot) % tot if prefs.settings.use_camera_cycling else max(0, idx - 1)
-            case "RIGHT_ARROW":
-                new_idx = (idx + 1) % tot if prefs.settings.use_camera_cycling else min(tot - 1, idx + 1)
-            case "UP_ARROW":
-                new_idx = idx - cols if idx - cols >= 0 else idx
-            case "DOWN_ARROW":
-                new_idx = idx + cols if idx + cols < tot else idx
+        if idx < 0:
+            new_idx = 0 if event_type in ("RIGHT_ARROW", "DOWN_ARROW") else tot - 1
+        else:
+            match event_type:
+                case "LEFT_ARROW":
+                    new_idx = (idx - 1 + tot) % tot if prefs.settings.use_camera_cycling else max(0, idx - 1)
+                case "RIGHT_ARROW":
+                    new_idx = (idx + 1) % tot if prefs.settings.use_camera_cycling else min(tot - 1, idx + 1)
+                case "UP_ARROW":
+                    new_idx = idx - cols if idx - cols >= 0 else idx
+                case "DOWN_ARROW":
+                    new_idx = idx + cols if idx + cols < tot else idx
 
         if new_idx != idx and 0 <= new_idx < tot:
-            context.scene.camera = layout.cameras[new_idx]
+            _set_active_camera(context, layout.cameras[new_idx], area)
             _apply_switch_action(context, area, region)
         return {"RUNNING_MODAL"}
 
@@ -741,6 +769,7 @@ def unregister():
     except ValueError:
         pass
     ThumbnailManager.invalidate()
+    ThumbnailManager.local_view_key = None
     if GridState.handler is not None:
         try:
             bpy.types.SpaceView3D.draw_handler_remove(GridState.handler, "WINDOW")

@@ -253,6 +253,14 @@ class CAMGRID_PG_settings(PropertyGroup):
         description="Display hidden cameras in the grid",
         default=False,
     )
+    follow_local_view: BoolProperty(
+        name="Follow Local View",
+        description=(
+            "Show only cameras included in the viewport's local view. When no cameras are isolated, show all cameras"
+        ),
+        default=True,
+        update=_update_redraw,
+    )
     show_camera_lens: BoolProperty(
         name="Show Camera Lens",
         description="Show the camera lens or field of view in the info text",

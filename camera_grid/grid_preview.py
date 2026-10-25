@@ -20,6 +20,7 @@ class ThumbnailManager:
     gen: int = 0
     pending: set[str] = set()
     stale: set[str] = set()
+    local_view_key: tuple[int, bool, bool, tuple[str, ...]] | None = None
 
     in_preview_render: bool = False
     render_timer_active: bool = False
@@ -140,6 +141,18 @@ def _auto_refresh_tick():
         _queue_stale_thumbnails()
         return None
     return max(0.0, ThumbnailManager.auto_refresh_deadline - time.monotonic())
+
+
+def _get_first_grid_area_pointer(context) -> int | None:
+    """Return the first enabled grid viewport present in the current windows."""
+    for area_ptr, state in GridState.areas.items():
+        if not state.enabled:
+            continue
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.as_pointer() == area_ptr and area.type == "VIEW_3D":
+                    return area_ptr
+    return None
 
 
 def _find_thumbnail_render_area(context, prefer_non_rendered: bool = False):
@@ -404,6 +417,20 @@ def _evict_orphaned_thumbnails(cameras: list[bpy.types.Object]):
 def _queue_missing_thumbnails(layout: GridLayout, prefs, active_scene):
     if prefs.settings.display_mode != "THUMBNAILS":
         return
+
+    # Previews are rendered from the first enabled grid viewport, so only that
+    # viewport's local view can invalidate the shared thumbnail cache.
+    preview_area_pointer = _get_first_grid_area_pointer(bpy.context)
+    if layout.area_pointer == preview_area_pointer:
+        local_view_key = (
+            layout.area_pointer,
+            layout.local_view_active,
+            layout.local_view_filtered,
+            tuple(cam.name for cam in layout.cameras),
+        )
+        if ThumbnailManager.local_view_key != local_view_key:
+            ThumbnailManager.invalidate()
+            ThumbnailManager.local_view_key = local_view_key
 
     missing_visible = False
     for idx in range(layout.start_index, layout.end_index):
