@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.7.0] - 2026-10-24
+## [1.7.0] - 2026-10-25
 
 ### Added
 - Added local view support: the grid now lists isolated cameras by default and falls back to all cameras when none are isolated
 - Added a Follow Local View option to the Filter section
+- Added a dark version of the add-on icon for light Blender themes
 
 ### Fixed
 - Fixed the grid disappearing in local view while still responding to clicks

@@ -6,14 +6,17 @@ import bpy
 import gpu
 from bpy.utils import previews
 
-from .gpu_draw import _draw_texture_2d_with_alpha
+from .gpu_draw import _draw_texture_2d_with_alpha, _theme_rgba
 
 _ICON_FILES: tuple[tuple[str, str], ...] = (
     ("anim_data", "blender_icon_anim_data.png"),
     ("constraint", "blender_icon_constraint.png"),
 )
 
-_PREVIEW_ICON_FILES: tuple[tuple[str, str], ...] = (("CAMERA_GRID_ICON", "camera_grid_icon.png"),)
+_PREVIEW_ICON_FILES: tuple[tuple[str, str], ...] = (
+    ("CAMERA_GRID_ICON_LIGHT", "camera_grid_icon_light.png"),
+    ("CAMERA_GRID_ICON_DARK", "camera_grid_icon_dark.png"),
+)
 
 _images: dict[str, bpy.types.Image] = {}
 _textures: dict[str, gpu.types.GPUTexture] = {}
@@ -71,6 +74,14 @@ def _icon_id(name: str) -> int:
     """Return the icon id for the named preview icon, or 0 if missing."""
     preview = _preview_icons.get(name)
     return preview.icon_id if preview is not None else 0
+
+
+def _camera_grid_icon_id() -> int:
+    """Return the header icon id that contrasts with the current button theme."""
+    inner = _theme_rgba("user_interface.wcol_regular.inner", (0.329, 0.329, 0.329, 1.0))
+    luminance = 0.2126 * inner[0] + 0.7152 * inner[1] + 0.0722 * inner[2]
+    name = "CAMERA_GRID_ICON_DARK" if luminance >= 0.5 else "CAMERA_GRID_ICON_LIGHT"
+    return _icon_id(name)
 
 
 def _draw_icon(name: str, x: float, y: float, size: float, alpha: float = 1.0) -> None:

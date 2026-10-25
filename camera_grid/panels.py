@@ -3,7 +3,7 @@
 from bpy.types import Panel
 
 from . import viewport_grid
-from .icons import _icon_id
+from .icons import _camera_grid_icon_id
 
 # ---------------------------------------------------------------------------
 #  Draw helpers (shared between popup and sidebar panel)
@@ -14,11 +14,14 @@ def draw_filter_section(layout, prefs, props):
     header, body = layout.panel("CAMGRID_PT_camera_grid_filter_list", default_closed=True)
     header.label(text="Filter")
     if body:
-        body.prop(props, "source_collection", text="")
+        col = body.column()
+        row = col.row(align=True)
+        row.prop(props, "source_collection", text="")
+        row.prop(prefs.settings, "use_filter_camera_collections", text="", icon="CAMERA_DATA")
 
-        sub = body.column()
-        sub.prop(prefs.settings, "use_filter_camera_collections", text="Filter Collections")
-        sub.prop(prefs.settings, "show_hidden_cameras", text="Show Hidden Cameras")
+        col.prop(prefs.settings, "show_hidden_cameras", text="Show Hidden Cameras")
+        sub = col.column(align=True)
+        sub.active = not prefs.settings.show_hidden_cameras
         sub.prop(prefs.settings, "follow_local_view", text="Follow Local View")
 
 
@@ -177,7 +180,7 @@ class CAMGRID_PT_grid_sidebar(Panel):
 
         row = layout.row(align=True)
         row.operator(
-            "camgrid.toggle_grid", text="Show Camera Grid", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active
+            "camgrid.toggle_grid", text="Show Camera Grid", icon_value=_camera_grid_icon_id(), depress=grid_active
         )
         if grid_active and prefs.settings.display_mode == "THUMBNAILS":
             row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
@@ -200,7 +203,7 @@ def draw_grid_header_button(self, context):
     grid_active = viewport_grid.is_grid_active(context)
 
     row = layout.row(align=True)
-    row.operator("camgrid.toggle_grid", text="", icon_value=_icon_id("CAMERA_GRID_ICON"), depress=grid_active)
+    row.operator("camgrid.toggle_grid", text="", icon_value=_camera_grid_icon_id(), depress=grid_active)
     if grid_active and prefs.settings.display_mode == "THUMBNAILS":
         row.operator("camgrid.refresh_previews", text="", icon="FILE_REFRESH")
     row.operator("camgrid.frame_camera", text="", icon="MOD_LENGTH")

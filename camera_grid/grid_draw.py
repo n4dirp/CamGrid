@@ -562,13 +562,6 @@ def _draw_footer_info(layout: GridLayout, colors: dict):
             if collections:
                 parts.append(f"Collection: {', '.join(collections)}")
 
-    if layout.local_view_active:
-        if layout.local_view_filtered:
-            suffix = "" if layout.total_cameras == 1 else "s"
-            parts.append(f"Local View: {layout.total_cameras} camera{suffix}")
-        else:
-            parts.append("Local View: all cameras")
-
     if prefs.settings.show_camera_count:
         n = len(layout.cameras)
         count_str = f"Cameras: {n}"
