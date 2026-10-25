@@ -4,11 +4,11 @@ A viewport camera grid overlay for Blender that lets you switch between cameras 
 
 ## Features
 
-- **Quick switching** -- Click, drag, scroll, or keybind to switch between cameras
-- **Preview thumbnails** -- Shows live viewport thumbnails for every camera, or use solid-tile and dots display modes
-- **Customizable** -- Configure tile size, rows, columns, alignment, and display mode
-- **Collection filtering** -- Restrict the grid to a specific collection and choose whether hidden cameras appear
-- **Framing controls** -- Frame the active camera to the viewport with configurable padding
+- **Quick switching** - Click, drag, scroll, or keybind to switch between cameras
+- **Preview thumbnails** - Shows live viewport thumbnails for every camera, or use solid-tile and dots display modes
+- **Customizable** - Configure tile size, rows, columns, alignment, and display mode
+- **Collection filtering** - Restrict the grid to a specific collection and choose whether hidden cameras appear
+- **Framing controls** - Frame the active camera to the viewport with configurable padding
 
 ## Location
 
