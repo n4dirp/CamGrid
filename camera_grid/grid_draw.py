@@ -332,7 +332,9 @@ def _draw_thumbnail_tiles(layout: GridLayout, colors: dict, prefs, active_scene)
 
         # Draw Tile Texture
         if cached:
-            _draw_texture_2d_with_alpha(cached[1].texture_color, x, y, layout.tw, layout.th, layout.master_alpha)
+            _draw_texture_2d_with_alpha(
+                cached[1].texture_color, x, y, layout.tw, layout.th, layout.master_alpha, srgb=True
+            )
 
         # Stale Tile Overlay
         if not is_valid and is_stale:

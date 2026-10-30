@@ -1,6 +1,7 @@
 """GPU drawing helpers for viewport camera grid overlay."""
 
 import blf
+import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 from gpu_extras.presets import draw_texture_2d
@@ -13,10 +14,16 @@ GPUShaderCreateInfo = gpu.types.GPUShaderCreateInfo
 # blf.shadow level 6 is FontShadowType::Outline, a 1px dilation of the glyph alpha.
 BLF_SHADOW_OUTLINE = 6
 
+# Blender 5.0 added an sRGB to output space conversion to the built-in IMAGE and
+# IMAGE_COLOR shaders. 4.5 passes texels through unchanged, so display-referred
+# textures need an explicit decode before they reach the sRGB framebuffer.
+_IMAGE_SHADER_DECODES_SRGB = bpy.app.version >= (5, 0, 0)
+
 _FILL_SDF_SHADER: gpu.types.GPUShader | None = None
 _BORDER_SDF_SHADER: gpu.types.GPUShader | None = None
 _PILL_SHADER: gpu.types.GPUShader | None = None
 _PILL_BORDER_SHADER: gpu.types.GPUShader | None = None
+_TEXTURE_SHADER: gpu.types.GPUShader | None = None
 
 _FILL_VERT_SRC = """
 void main() {
@@ -91,6 +98,26 @@ void main() {
     float dist = max(outer, -inner);
     float alpha = 1.0 - smoothstep(0.0, 1.0, dist);
     fragColor = vec4(color.rgb, color.a * alpha);
+}
+"""
+
+_TEXTURE_VERT_SRC = """
+void main() {
+    vUv = uv;
+    gl_Position = ModelViewProjectionMatrix * vec4(pos, 1.0);
+}
+"""
+
+_TEXTURE_FRAG_SRC = """
+vec3 srgb_to_linear(vec3 c) {
+    c = max(c, vec3(0.0));
+    vec3 lo = c * (1.0 / 12.92);
+    vec3 hi = pow((c + 0.055) * (1.0 / 1.055), vec3(2.4));
+    return mix(lo, hi, step(vec3(0.04045), c));
+}
+void main() {
+    vec4 texel = texture(image, vUv);
+    fragColor = vec4(srgb_to_linear(texel.rgb), texel.a) * color;
 }
 """
 
@@ -177,6 +204,27 @@ def _get_pill_border_shader() -> gpu.types.GPUShader:
         _PILL_BORDER_SHADER = gpu.shader.create_from_info(info)
         del vert_out, info
     return _PILL_BORDER_SHADER
+
+
+def _get_texture_shader() -> gpu.types.GPUShader:
+    """Return the texture shader that decodes sRGB before output, creating it on first use."""
+    global _TEXTURE_SHADER
+    if _TEXTURE_SHADER is None:
+        vert_out = GPUStageInterfaceInfo("texture_iface")
+        vert_out.smooth("VEC2", "vUv")
+        info = GPUShaderCreateInfo()
+        info.push_constant("MAT4", "ModelViewProjectionMatrix")
+        info.push_constant("VEC4", "color")
+        info.vertex_in(0, "VEC3", "pos")
+        info.vertex_in(1, "VEC2", "uv")
+        info.vertex_out(vert_out)
+        info.fragment_out(0, "VEC4", "fragColor")
+        info.sampler(0, "FLOAT_2D", "image")
+        info.vertex_source(_TEXTURE_VERT_SRC)
+        info.fragment_source(_TEXTURE_FRAG_SRC)
+        _TEXTURE_SHADER = gpu.shader.create_from_info(info)
+        del vert_out, info
+    return _TEXTURE_SHADER
 
 
 def _theme_rgba(path: str, default: tuple[float, ...]):
@@ -374,9 +422,37 @@ def _draw_pill_border(x, y, w, h, color, line_width=1.0):
     gpu.state.blend_set("NONE")
 
 
-def _draw_texture_2d_with_alpha(texture, x: float, y: float, w: float, h: float, alpha: float = 1.0) -> None:
+def _draw_texture_srgb(texture, x: float, y: float, w: float, h: float, alpha: float) -> None:
+    """Draw an sRGB-encoded texture with opacity, decoding it to linear before output."""
+    vertices = (
+        (x, y, 0.0),
+        (x + w, y, 0.0),
+        (x + w, y + h, 0.0),
+        (x, y + h, 0.0),
+    )
+    uvs = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    shader = _get_texture_shader()
+    batch = batch_for_shader(shader, "TRIS", {"pos": vertices, "uv": uvs}, indices=((0, 1, 2), (2, 3, 0)))
+
+    gpu.state.blend_set("ALPHA")
+    try:
+        shader.bind()
+        shader.uniform_float("ModelViewProjectionMatrix", gpu.matrix.get_projection_matrix())
+        shader.uniform_float("color", (1.0, 1.0, 1.0, float(alpha)))
+        shader.uniform_sampler("image", texture)
+        batch.draw(shader)
+    finally:
+        gpu.state.blend_set("NONE")
+
+
+def _draw_texture_2d_with_alpha(
+    texture, x: float, y: float, w: float, h: float, alpha: float = 1.0, srgb: bool = False
+) -> None:
     """Draw a GPU texture with opacity."""
     if texture is None or w <= 0 or h <= 0 or alpha <= 0.0:
+        return
+    if srgb and not _IMAGE_SHADER_DECODES_SRGB:
+        _draw_texture_srgb(texture, x, y, w, h, alpha)
         return
     gpu.state.blend_set("ALPHA")
     try:
@@ -388,12 +464,15 @@ def _draw_texture_2d_with_alpha(texture, x: float, y: float, w: float, h: float,
             batch = batch_for_shader(
                 shader, "TRIS", {"pos": coords, "texCoord": coords}, indices=((0, 1, 2), (2, 3, 0))
             )
-            with gpu.matrix.push_pop():
+            gpu.matrix.push()
+            try:
                 gpu.matrix.translate((x, y))
                 gpu.matrix.scale((w, h))
                 shader.bind()
                 shader.uniform_sampler("image", texture)
                 shader.uniform_float("color", (1.0, 1.0, 1.0, float(alpha)))
                 batch.draw(shader)
+            finally:
+                gpu.matrix.pop()
     finally:
         gpu.state.blend_set("NONE")

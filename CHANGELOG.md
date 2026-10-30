@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.0] - 2026-10-28
+
+### Added
+- Added support for Blender 4.5 LTS; the add-on now runs on Blender 4.5 and newer
+
 ## [1.7.0] - 2026-10-25
 
 ### Added
