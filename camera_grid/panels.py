@@ -106,30 +106,28 @@ def draw_interaction_section(layout, prefs):
 
 def draw_frame_camera_section(layout, prefs):
     header, body = layout.panel("CAMGRID_PT_frame_camera", default_closed=True)
-    header.label(text="Frame Margins")
+    header.label(text="Frame Camera")
     if body:
-        row = body.row()
-        col = row.column(align=True)
-        col.prop(prefs.settings, "use_frame_header_margin", text="Header")
-        col.prop(prefs.settings, "use_frame_grid_padding", text="Grid")
+        col = body.column()
+        col.label(text="Reserve Space")
+        grid = col.grid_flow(row_major=False, columns=2, align=True)
+        grid.prop(prefs.settings, "use_frame_header_margin", text="Header")
+        grid.prop(prefs.settings, "use_frame_grid_padding", text="Grid")
+        grid.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
+        grid.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
 
-        col = row.column(align=True)
-        col.prop(prefs.settings, "use_frame_toolbar_margin", text="Toolbar")
-        col.prop(prefs.settings, "use_frame_sidebar_margin", text="Sidebar")
-
-        body.separator(factor=0.5)
         col = body.column(align=True)
         col.prop(prefs.settings, "frame_top_padding", text="Top")
         col.prop(prefs.settings, "frame_horizontal_padding", text="Horizontal")
         col.prop(prefs.settings, "frame_bottom_padding", text="Bottom")
 
         body.separator(factor=0.5)
-        col = body.column(align=True)
+        col = body.column()
         col.prop(prefs.settings, "use_custom_frame_size", text="Limit Frame Size")
-        col = col.column(align=True)
-        col.active = prefs.settings.use_custom_frame_size
-        col.prop(prefs.settings, "custom_frame_width", text="Width")
-        col.prop(prefs.settings, "custom_frame_height", text="Height")
+        if prefs.settings.use_custom_frame_size:
+            col = col.column(align=True)
+            col.prop(prefs.settings, "custom_frame_width", text="Width")
+            col.prop(prefs.settings, "custom_frame_height", text="Height")
 
 
 # ---------------------------------------------------------------------------
