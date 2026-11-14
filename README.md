@@ -71,7 +71,7 @@ Drag the generated `camera_grid-<version>.zip` into Blender.
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) or the [version history](https://extensions.blender.org/add-ons/camera-grid/) on Blender Extensions.
+See [CHANGELOG.md](CHANGELOG.md) or the [version history](https://extensions.blender.org/add-ons/camera-grid/versions/) on Blender Extensions.
 
 ## Support & Contributing
 
