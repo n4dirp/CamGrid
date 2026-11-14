@@ -4,7 +4,7 @@
 Browse and switch between all your scene cameras without leaving the viewport.
 
 
-[![Blender 4.5+](https://img.shields.io/badge/Blender-4.4%2B-E87D0D?logo=blender&logoColor=white)](https://www.blender.org/)
+[![Blender 4.5+](https://img.shields.io/badge/Blender-4.5%2B-E87D0D?logo=blender&logoColor=white)](https://www.blender.org/)
 [![Version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fn4dirp%2FCamGrid%2Fmain%2Fcamera_grid%2Fblender_manifest.toml&query=%24.version&label=version&color=blue)](CHANGELOG.md)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![Blender Extensions](https://img.shields.io/badge/Blender_Extensions-Camera_Grid-E87D0D?logo=blender&logoColor=white)](https://extensions.blender.org/add-ons/camera-grid/)
